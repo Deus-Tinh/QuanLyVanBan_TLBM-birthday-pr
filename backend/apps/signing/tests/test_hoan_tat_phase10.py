@@ -74,7 +74,7 @@ class TepHoanTatTests(HoanTatBase):
         self.assertEqual(json.loads(dinh_kem), noi_dung)
         self.assertEqual(pdf.metadata["/Subject"], noi_dung["nhan_dien"])
         self.assertEqual(crypto.sha256_hex(get_storage().read_bytes(luot.vi_tri_luu_tep)), HASH)  # tệp gốc không đổi
-        hanh_dong = list(SigningAuditLog.objects.filter(trinh_ky_id=self.pk).values_list("hanh_dong", flat=True))
+        hanh_dong = list(SigningAuditLog.objects.filter(trinh_ky_id=self.pk).order_by("id").values_list("hanh_dong", flat=True))
         self.assertEqual(hanh_dong[-3:], ["HOAN_THANH_TRINH_KY", "CHOT_BANG_CHUNG", "TAO_TEP_HOAN_TAT"])
 
     def test_evidence_endpoint_verifies_and_detects_tampered_original(self):
@@ -158,7 +158,7 @@ class LoiVaThuLaiTests(HoanTatBase):
             self.tao_lai(self.tao)  # đã thành công: không sinh bản thứ hai
         self.assertEqual(SigningAttempt.objects.get(pk=luot.pk).ma_bam_tep_hoan_tat, ma_bam)
         self.assertEqual(SigningSignature.objects.count(), 3)
-        hanh_dong = list(SigningAuditLog.objects.filter(trinh_ky_id=self.pk).values_list("hanh_dong", flat=True))
+        hanh_dong = list(SigningAuditLog.objects.filter(trinh_ky_id=self.pk).order_by("id").values_list("hanh_dong", flat=True))
         self.assertEqual(hanh_dong[-3:], ["LOI_TAO_TEP_HOAN_TAT", "TAO_LAI_TEP_HOAN_TAT", "TAO_TEP_HOAN_TAT"])
 
     def test_retry_blocked_while_processing_allowed_when_stale(self):
@@ -182,6 +182,7 @@ class LoiVaThuLaiTests(HoanTatBase):
 
 class TaiLenPdfTests(HoanTatBase):
     def test_unreadable_or_pageless_pdf_rejected_at_upload(self):
-        r = self.c.post(f"{BASE}/", {"document_type": "vanbandi", "van_ban_id": 10, "quy_trinh": self.process.pk,
-                                     "tep": tep_pdf(b"%PDF-1.4 hong")}, format="multipart")
+        r = self.c.post(f"{BASE}/", {"document_type": "vanbandi", "van_ban_id": next(self._van_ban_tiep),
+                                     "quy_trinh": self.process.pk, "tep": tep_pdf(b"%PDF-1.4 hong")},
+                        format="multipart")
         self.assertEqual((r.status_code, r.data["code"]), (400, "tep_khong_phai_pdf"))

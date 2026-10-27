@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { TASK_STATUS_LABELS, TaskFilters, TaskStatus } from '../types/task';
 import DateInput, { isoToDisplay } from './DateInput';
 
@@ -42,6 +43,7 @@ const inputStyle: React.CSSProperties = {
 };
 
 export default function TaskFilterBar({ value, busy = false, onSearch, onCreate }: TaskFilterBarProps) {
+  const isMobile = useIsMobile();
   const [draft, setDraft] = useState<FilterDraft>(value);
   const [error, setError] = useState('');
 
@@ -84,8 +86,8 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          gap: '16px',
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
+          gap: isMobile ? '10px' : '16px',
           alignItems: 'end',
         }}
       >
@@ -131,15 +133,25 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
 
       {error && <div style={{ fontSize: '0.8rem', color: 'var(--color-danger)' }}>{error}</div>}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap',
+          alignItems: isMobile ? 'stretch' : 'center',
+        }}
+      >
         <button
           type="button"
           onClick={onCreate}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
+            justifyContent: 'center',
             gap: '8px',
-            padding: '9px 16px',
+            padding: '10px 16px',
             borderRadius: 'var(--radius-md)',
             border: 'none',
             background: 'var(--color-primary)',
@@ -149,6 +161,7 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
             cursor: 'pointer',
             boxShadow: '0 4px 12px var(--color-primary-glow)',
             whiteSpace: 'nowrap',
+            width: isMobile ? '100%' : 'auto',
           }}
         >
           <i className="fa-solid fa-plus" />
@@ -161,8 +174,8 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
             gap: '8px',
             flexWrap: 'wrap',
             alignItems: 'center',
-            flex: '1 1 320px',
-            justifyContent: 'flex-end',
+            flex: isMobile ? '1 1 auto' : '1 1 320px',
+            justifyContent: isMobile ? 'stretch' : 'flex-end',
           }}
         >
           <input
@@ -175,7 +188,7 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
             onKeyDown={(event) => {
               if (event.key === 'Enter') submit();
             }}
-            style={{ ...inputStyle, flex: '1 1 220px', width: 'auto', maxWidth: '360px' }}
+            style={{ ...inputStyle, flex: '1 1 220px', width: 'auto', maxWidth: isMobile ? '100%' : '360px' }}
           />
           {hasFilter && (
             <button

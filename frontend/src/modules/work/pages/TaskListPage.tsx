@@ -8,6 +8,7 @@ import TaskFormModal from '../components/TaskFormModal';
 import TaskPagination from '../components/TaskPagination';
 import TaskTable from '../components/TaskTable';
 import WorkAlert from '../components/WorkAlert';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { Paginated, TaskListItem } from '../types/task';
 
 /**
@@ -49,6 +50,7 @@ interface TaskListPageProps {
 }
 
 export default function TaskListPage({ onOpenTask }: TaskListPageProps) {
+  const isMobile = useIsMobile();
   const [state, setState] = useState<ListState>(readState);
   const [data, setData] = useState<Paginated<TaskListItem> | null>(null);
   const [loadedKey, setLoadedKey] = useState('');
@@ -151,7 +153,7 @@ export default function TaskListPage({ onOpenTask }: TaskListPageProps) {
           background: 'var(--bg-surface)',
           border: '1px solid var(--border-subtle)',
           borderRadius: 'var(--radius-xl)',
-          padding: '20px 24px',
+          padding: isMobile ? '14px 16px' : '20px 24px',
           boxShadow: 'var(--shadow-sm)',
           display: 'flex',
           flexDirection: 'column',
@@ -159,7 +161,7 @@ export default function TaskListPage({ onOpenTask }: TaskListPageProps) {
         }}
       >
         <div>
-          <h1 style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--text-main)' }}>
+          <h1 style={{ fontSize: isMobile ? '1.15rem' : '1.3rem', fontWeight: 800, color: 'var(--text-main)' }}>
             Danh sách nội dung công việc
           </h1>
           <p style={{ marginTop: '4px', fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
@@ -192,7 +194,7 @@ export default function TaskListPage({ onOpenTask }: TaskListPageProps) {
           background: 'var(--bg-surface)',
           border: '1px solid var(--border-subtle)',
           borderRadius: 'var(--radius-xl)',
-          padding: '16px',
+          padding: isMobile ? '12px' : '16px',
           boxShadow: 'var(--shadow-sm)',
           display: 'flex',
           flexDirection: 'column',

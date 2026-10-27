@@ -7,7 +7,7 @@ import { ApiError } from '@lib/apiClient';
 import DocumentTypesPage from './DocumentTypesPage';
 
 vi.mock('@lib/recordsService', () => ({ recordsService: {
-  getDossier: vi.fn(), listDocumentTypes: vi.fn(), listDocumentTypeCatalog: vi.fn(),
+  getDossier: vi.fn(), getDocumentType: vi.fn(), listDocumentTypes: vi.fn(), listDocumentTypeCatalog: vi.fn(),
   listDossiers: vi.fn(), createDocumentType: vi.fn(), updateDocumentType: vi.fn(), deleteDocumentType: vi.fn(),
 } }));
 const categories = { items: [{ id: 23, ho_so: 9, ten_ho_so: 'Parent', ten_loai: 'Category A' }], count: 1, next: null, previous: null };
@@ -24,6 +24,7 @@ describe('DocumentTypesPage shared-list handoff', () => {
     vi.mocked(recordsService.listDocumentTypeCatalog).mockResolvedValue(categories);
     vi.mocked(recordsService.listDocumentTypes).mockResolvedValue(categories);
     vi.mocked(recordsService.getDossier).mockResolvedValue({ id: 9, ten_ho_so: 'Parent', so_ky_hieu: 'HS' });
+    vi.mocked(recordsService.getDocumentType).mockResolvedValue(categories.items[0]);
     vi.mocked(recordsService.listDossiers).mockResolvedValue({ items: [{ id: 9, ten_ho_so: 'Parent', so_ky_hieu: 'HS' }], count: 1, next: null, previous: null });
     vi.mocked(recordsService.createDocumentType).mockResolvedValue(categories.items[0]);
     vi.mocked(recordsService.updateDocumentType).mockResolvedValue(categories.items[0]);
@@ -35,8 +36,8 @@ describe('DocumentTypesPage shared-list handoff', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Category A' }));
     expect(screen.getByRole('dialog', { name: 'Choose document list' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Restricted documents only' })).toBeInTheDocument();
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'View documents' }));
-    expect(await screen.findByTestId('destination')).toHaveTextContent('/documents/incoming?loai_van_ban=23');
+    fireEvent.click(await within(screen.getByRole('dialog')).findByRole('link', { name: 'View documents' }));
+    expect(await screen.findByTestId('destination')).toHaveTextContent('/documents/incoming?ho_so=9&ten_ho_so=Parent&loai_van_ban=23&pham_vi=NOI_BO');
     expect(recordsService.listDocumentTypes).not.toHaveBeenCalled();
   });
   it('keeps outgoing confidential documents in the same kind with HAN_CHE scope', async () => {
@@ -44,8 +45,8 @@ describe('DocumentTypesPage shared-list handoff', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Category A' }));
     fireEvent.change(within(screen.getByRole('dialog')).getByRole('combobox'), { target: { value: 'DI' } });
     fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'View documents' }));
-    expect(await screen.findByTestId('destination')).toHaveTextContent('/documents/outgoing?loai_van_ban=23&pham_vi=HAN_CHE');
+    fireEvent.click(await within(screen.getByRole('dialog')).findByRole('link', { name: 'View documents' }));
+    expect(await screen.findByTestId('destination')).toHaveTextContent('/documents/outgoing?ho_so=9&ten_ho_so=Parent&loai_van_ban=23&pham_vi=HAN_CHE');
     expect(recordsService.listDocumentTypeCatalog).not.toHaveBeenCalled();
   });
   it('allows Escape to close selection without opening a private list', async () => {

@@ -28,7 +28,7 @@ from ..tich_hop import to_chuc
 from . import tep_hoan_tat, thong_bao
 from .audit import ghi_nhat_ky
 from .bang_chung import chot_bang_chung
-from .trinh_ky import luot_hien_hanh, mo_cap, mo_nguoi_ky_trong_cap
+from .trinh_ky import dung_cap_dang_mo, luot_hien_hanh, mo_cap, mo_nguoi_ky_trong_cap
 
 logger = logging.getLogger(__name__)
 LOAI = "signing_request_step_signer"
@@ -188,6 +188,7 @@ def tu_choi(yeu_cau, nguoi, *, ly_do_tu_choi, khoa_chong_trung, dia_chi_ip=None)
     luot.thoi_diem_tu_choi = thoi_diem
     luot.ly_do = ly_do_tu_choi
     luot.save(update_fields=["trang_thai", "thoi_diem_tu_choi", "ly_do", "update_at"])
+    dung_cap_dang_mo(luot)
     yeu_cau = SigningRequest.objects.select_for_update().get(pk=yeu_cau.pk)
     yeu_cau.trang_thai = enums.TrangThaiYeuCau.TU_CHOI
     yeu_cau.ngay_tu_choi = thoi_diem

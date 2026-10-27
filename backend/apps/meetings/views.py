@@ -318,18 +318,6 @@ class MeetingBookingViewSet(viewsets.ModelViewSet):
                 # Khóa bản ghi phòng họp để các request đồng thời phải tuần tự kiểm tra
                 locked_room = MeetingRoom.objects.select_for_update().get(id=room.id)
 
-                # Chặn đặt phòng nội bộ nếu không có quyền
-                if not locked_room.is_public:
-                    user = request.user
-                    has_perm = user and (user.is_superuser or user.has_perm("change_phonghop"))
-                    if not has_perm:
-                        return Response(
-                            {
-                                "detail": "meetings.messages.privateRoomForbidden",
-                            },
-                            status=status.HTTP_403_FORBIDDEN,
-                        )
-
                 if locked_room.trang_thai in [MeetingRoom.Status.MAINTENANCE, MeetingRoom.Status.UNAVAILABLE]:
                     return Response(
                         {
@@ -426,18 +414,6 @@ class MeetingBookingViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 locked_room = MeetingRoom.objects.select_for_update().get(id=room.id)
 
-                # Chặn đặt/sửa phòng nội bộ nếu không có quyền
-                if not locked_room.is_public:
-                    user = request.user
-                    has_perm = user and (user.is_superuser or user.has_perm("change_phonghop"))
-                    if not has_perm:
-                        return Response(
-                            {
-                                "detail": "meetings.messages.privateRoomForbidden",
-                            },
-                            status=status.HTTP_403_FORBIDDEN,
-                        )
-
                 if new_status != MeetingBooking.Status.CANCELLED:
                     if locked_room.trang_thai in [MeetingRoom.Status.MAINTENANCE, MeetingRoom.Status.UNAVAILABLE]:
                         return Response(
@@ -530,7 +506,7 @@ class MeetingBookingViewSet(viewsets.ModelViewSet):
         booking.trang_thai = MeetingBooking.Status.CANCELLED
         reason = (request.data.get("cancel_reason") or "").strip()
         if reason:
-            booking.purpose = (booking.purpose + f"\n---\n{reason}").strip() if booking.purpose else reason
+            booking.purpose = f"{booking.purpose}\n---\n{reason}" if booking.purpose else f"\n---\n{reason}"
         booking.save()
 
         serializer = self.get_serializer(booking)

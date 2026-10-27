@@ -162,6 +162,8 @@
       "HAN_CHE": "Hạn chế"
     },
     "destination": {
+      "loadingContext": "Đang tải thông tin hồ sơ…",
+      "contextUnavailable": "Không thể xác minh hồ sơ. Đóng hộp thoại và tải lại danh sách trước khi thử lại.",
       "title": "Chọn danh sách văn bản",
       "direction": "Văn bản đến hoặc đi",
       "restricted": "Chỉ văn bản mật (hạn chế)",

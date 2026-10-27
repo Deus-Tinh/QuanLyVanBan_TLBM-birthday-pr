@@ -11,13 +11,14 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from unittest import mock, skipUnless
+import threading
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APIClient
 
 from meetings.models import MeetingRoom, MeetingBooking
 
@@ -38,6 +39,18 @@ def _constraint_names(table):
     with connection.cursor() as cursor:
         cursor.execute("SELECT conname FROM pg_constraint WHERE conrelid = %s::regclass", [table])
         return {row[0] for row in cursor.fetchall()}
+
+
+def ensure_permissions_seeded():
+    """Đảm bảo các quyền RBAC chuẩn luôn có trong auth_permission của DB test."""
+    from authorization.rbac_seed import PERMISSIONS, EXTRA_PERMISSIONS
+    with connection.cursor() as cursor:
+        for name, codename, module_ten in [*PERMISSIONS, *EXTRA_PERMISSIONS]:
+            cursor.execute(
+                "INSERT INTO auth_permission (name, codename, module_ten) "
+                "SELECT %s, %s, %s WHERE NOT EXISTS (SELECT 1 FROM auth_permission WHERE codename = %s)",
+                [name, codename, module_ten, codename],
+            )
 
 
 class MeetingRoomModelTestCase(TestCase):
@@ -63,6 +76,7 @@ class MeetingRoomAPITestCase(APITestCase):
     """Kiểm thử API endpoints cho /api/meeting-rooms/."""
 
     def setUp(self):
+        ensure_permissions_seeded()
         # Admin user (có mọi quyền)
         self.admin_user = User.objects.create_superuser(
             username="admin_user",
@@ -351,6 +365,7 @@ class MeetingBookingAPITestCase(APITestCase):
     """Kiểm thử API endpoints cho /api/meeting-bookings/."""
 
     def setUp(self):
+        ensure_permissions_seeded()
         self.admin_user = User.objects.create_superuser(
             username="booking_admin",
             email="admin@tlbm.vn",
@@ -672,7 +687,7 @@ class MeetingBookingAPITestCase(APITestCase):
         self.assertEqual(private_room.capacity, 12)
 
     def test_regular_user_cannot_book_private_room(self):
-        """Người dùng thường không có quyền change_phonghop thì không được đặt lịch vào phòng nội bộ."""
+        """Người dùng thường không có quyền change_phonghop thì không được đặt lịch hoặc dời lịch vào phòng nội bộ."""
         private_room = MeetingRoom.objects.create(
             name="Phòng Riêng VIP Ban Giám Đốc",
             capacity=8,
@@ -687,10 +702,24 @@ class MeetingBookingAPITestCase(APITestCase):
             "end_time": "15:00:00",
             "attendees_count": 4,
         }
+        # 1. Thử tạo mới vào phòng nội bộ -> 400 Bad Request với key privateRoomForbidden
         res = self.client.post("/api/meeting-bookings/", payload)
-        self.assertIn(res.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN])
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        room_err = str(res.data.get("room", ""))
+        self.assertIn("meetings.messages.privateRoomForbidden", room_err)
 
-        # Admin hoặc người có quyền change_phonghop thì đặt được
+        # 2a. Thử sửa lịch của người khác (booking1 của user1) -> 403 Forbidden
+        res_other = self.client.patch(f"/api/meeting-bookings/{self.booking1.id}/", {"room": private_room.id})
+        self.assertEqual(res_other.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 2b. Chủ sở hữu (user1 không có change_phonghop) dời lịch của mình sang phòng nội bộ -> 400 Bad Request
+        self.client.force_authenticate(user=self.user1)
+        res_patch = self.client.patch(f"/api/meeting-bookings/{self.booking1.id}/", {"room": private_room.id})
+        self.assertEqual(res_patch.status_code, status.HTTP_400_BAD_REQUEST)
+        patch_err = str(res_patch.data.get("room", ""))
+        self.assertIn("meetings.messages.privateRoomForbidden", patch_err)
+
+        # 3. Admin hoặc người có quyền change_phonghop thì đặt được -> 201 Created
         self.client.force_authenticate(user=self.admin_user)
         res_admin = self.client.post("/api/meeting-bookings/", payload)
         self.assertEqual(res_admin.status_code, status.HTTP_201_CREATED)
@@ -783,6 +812,54 @@ class MeetingBookingAPITestCase(APITestCase):
         self.assertEqual(self.booking1.trang_thai, MeetingBooking.Status.CANCELLED)
         self.assertNotIn("[Lý do hủy]:", self.booking1.purpose)
         self.assertIn("Thay đổi kế hoạch nội bộ", self.booking1.purpose)
+
+    def test_cancel_booking_without_purpose_formats_separator(self):
+        """QA #4: Hủy lịch không có ghi chú ban đầu phải luôn lưu dạng \n---\n<reason> để frontend phân tách."""
+        self.client.force_authenticate(user=self.user1)
+        booking = MeetingBooking.objects.create(
+            room=self.room1,
+            organizer=self.user1,
+            title="Lịch không có ghi chú ban đầu",
+            date=self.booking_date,
+            start_time=time(11, 0),
+            end_time=time(12, 0),
+            attendees_count=5,
+            purpose="",
+            trang_thai=MeetingBooking.Status.CONFIRMED,
+        )
+        res = self.client.post(
+            f"/api/meeting-bookings/{booking.id}/cancel/",
+            {"cancel_reason": "Giải phóng phòng để bảo trì"},
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        booking.refresh_from_db()
+        self.assertEqual(booking.trang_thai, MeetingBooking.Status.CANCELLED)
+        self.assertEqual(booking.purpose, "\n---\nGiải phóng phòng để bảo trì")
+        self.assertEqual(res.data["booking"]["purpose"], "\n---\nGiải phóng phòng để bảo trì")
+
+    def test_cancel_booking_with_initial_purpose_preserves_both(self):
+        """QA #4: Hủy lịch có ghi chú ban đầu phải giữ nguyên cả purpose và lý do hủy có phân tách."""
+        self.client.force_authenticate(user=self.user1)
+        booking = MeetingBooking.objects.create(
+            room=self.room1,
+            organizer=self.user1,
+            title="Lịch có ghi chú ban đầu",
+            date=self.booking_date,
+            start_time=time(13, 0),
+            end_time=time(14, 0),
+            attendees_count=5,
+            purpose="Chuẩn bị tài liệu hội thảo",
+            trang_thai=MeetingBooking.Status.CONFIRMED,
+        )
+        res = self.client.post(
+            f"/api/meeting-bookings/{booking.id}/cancel/",
+            {"cancel_reason": "Dời sang tuần sau"},
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        booking.refresh_from_db()
+        self.assertEqual(booking.trang_thai, MeetingBooking.Status.CANCELLED)
+        self.assertEqual(booking.purpose, "Chuẩn bị tài liệu hội thảo\n---\nDời sang tuần sau")
+        self.assertEqual(res.data["booking"]["purpose"], "Chuẩn bị tài liệu hội thảo\n---\nDời sang tuần sau")
 
     def test_room_name_too_long_error_key(self):
         """Tạo phòng họp có tên > 100 ký tự trả về 400 và key roomNameTooLong."""
@@ -1057,6 +1134,290 @@ class MeetingBookingAPITestCase(APITestCase):
         ongoing_booking.refresh_from_db()
         self.assertEqual(ongoing_booking.title, "Cuộc họp đang diễn ra - Đã cập nhật tiêu đề")
 
+    def test_adjacent_bookings_allowed(self):
+        """Các khung giờ liền kề (trước và sau) không bị coi là trùng giờ và được tạo thành công (201)."""
+        self.client.force_authenticate(user=self.user1)
+        target_date = (self.booking_date + timedelta(days=2))
+
+        # Booking mốc: 14:00 - 15:00
+        base_payload = {
+            "room": self.room1.id,
+            "title": "Cuộc họp mốc",
+            "date": target_date.isoformat(),
+            "start_time": "14:00:00",
+            "end_time": "15:00:00",
+            "attendees_count": 5,
+        }
+        res_base = self.client.post("/api/meeting-bookings/", base_payload)
+        self.assertEqual(res_base.status_code, status.HTTP_201_CREATED)
+
+        # 1. Liền kề trước: 13:00 - 14:00 -> 201 Created
+        prev_payload = {
+            "room": self.room1.id,
+            "title": "Cuộc họp liền kề trước",
+            "date": target_date.isoformat(),
+            "start_time": "13:00:00",
+            "end_time": "14:00:00",
+            "attendees_count": 5,
+        }
+        res_prev = self.client.post("/api/meeting-bookings/", prev_payload)
+        self.assertEqual(res_prev.status_code, status.HTTP_201_CREATED)
+
+        # 2. Liền kề sau: 15:00 - 16:00 -> 201 Created
+        next_payload = {
+            "room": self.room1.id,
+            "title": "Cuộc họp liền kề sau",
+            "date": target_date.isoformat(),
+            "start_time": "15:00:00",
+            "end_time": "16:00:00",
+            "attendees_count": 5,
+        }
+        res_next = self.client.post("/api/meeting-bookings/", next_payload)
+        self.assertEqual(res_next.status_code, status.HTTP_201_CREATED)
+
+    def test_overlapping_bookings_rejected(self):
+        """Các trường hợp trùng giờ (bao trùm, nằm trong, giao đầu, giao đuôi, trùng khớp) bị từ chối 400."""
+        self.client.force_authenticate(user=self.user1)
+        target_date = (self.booking_date + timedelta(days=3))
+
+        # Booking mốc: 14:00 - 16:00
+        base_payload = {
+            "room": self.room1.id,
+            "title": "Cuộc họp mốc 14-16h",
+            "date": target_date.isoformat(),
+            "start_time": "14:00:00",
+            "end_time": "16:00:00",
+            "attendees_count": 5,
+        }
+        res_base = self.client.post("/api/meeting-bookings/", base_payload)
+        self.assertEqual(res_base.status_code, status.HTTP_201_CREATED)
+
+        cases = [
+            ("Nằm trọn bên trong", "14:30:00", "15:30:00"),
+            ("Bao trùm bên ngoài", "13:30:00", "16:30:00"),
+            ("Giao khoảng đầu", "13:30:00", "14:30:00"),
+            ("Giao khoảng đuôi", "15:30:00", "16:30:00"),
+            ("Trùng khớp hoàn toàn", "14:00:00", "16:00:00"),
+        ]
+        for desc, st, et in cases:
+            with self.subTest(desc=desc):
+                payload = {
+                    "room": self.room1.id,
+                    "title": f"Họp trùng - {desc}",
+                    "date": target_date.isoformat(),
+                    "start_time": st,
+                    "end_time": et,
+                    "attendees_count": 5,
+                }
+                res = self.client.post("/api/meeting-bookings/", payload)
+                self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn("meetings.messages.roomTimeConflict", str(res.data))
+
+    def test_reschedule_conflict_rejected_and_data_unchanged(self):
+        """Dời lịch vào slot đã bận bị trả về 400, dữ liệu cũ không đổi; sửa tiêu đề không tự xung đột."""
+        self.client.force_authenticate(user=self.user1)
+        target_date = (self.booking_date + timedelta(days=4))
+
+        # Booking A: 09:00 - 10:00
+        booking_a = MeetingBooking.objects.create(
+            room=self.room1,
+            organizer=self.user1,
+            title="Cuộc họp A",
+            date=target_date,
+            start_time=time(9, 0),
+            end_time=time(10, 0),
+            attendees_count=5,
+            trang_thai=MeetingBooking.Status.CONFIRMED,
+        )
+        # Booking B: 11:00 - 12:00
+        booking_b = MeetingBooking.objects.create(
+            room=self.room1,
+            organizer=self.user1,
+            title="Cuộc họp B",
+            date=target_date,
+            start_time=time(11, 0),
+            end_time=time(12, 0),
+            attendees_count=5,
+            trang_thai=MeetingBooking.Status.CONFIRMED,
+        )
+
+        # 1. Cố dời Booking B vào khung 09:30 - 10:30 (trùng A) -> 400
+        res = self.client.put(
+            f"/api/meeting-bookings/{booking_b.id}/",
+            {
+                "room": self.room1.id,
+                "title": "Cuộc họp B dời giờ",
+                "date": target_date.isoformat(),
+                "start_time": "09:30:00",
+                "end_time": "10:30:00",
+                "attendees_count": 5,
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("meetings.messages.roomTimeConflict", str(res.data))
+
+        # Kiểm tra Booking B trong DB vẫn giữ nguyên thời gian và tiêu đề cũ
+        booking_b.refresh_from_db()
+        self.assertEqual(booking_b.start_time, time(11, 0))
+        self.assertEqual(booking_b.end_time, time(12, 0))
+        self.assertEqual(booking_b.title, "Cuộc họp B")
+
+        # 2. Cập nhật chỉ tiêu đề của Booking A -> 200 OK, không tự báo trùng với chính mình
+        res_a = self.client.put(
+            f"/api/meeting-bookings/{booking_a.id}/",
+            {
+                "room": self.room1.id,
+                "title": "Cuộc họp A - Tiêu đề cập nhật",
+                "date": target_date.isoformat(),
+                "start_time": "09:00:00",
+                "end_time": "10:00:00",
+                "attendees_count": 5,
+            },
+        )
+        self.assertEqual(res_a.status_code, status.HTTP_200_OK)
+        booking_a.refresh_from_db()
+        self.assertEqual(booking_a.title, "Cuộc họp A - Tiêu đề cập nhật")
+
+    def test_update_booking_permissions(self):
+        """Phân quyền cập nhật lịch: người đặt (200), user khác chỉ có change_own (403), user có change_any (200)."""
+        target_date = (self.booking_date + timedelta(days=5))
+        booking = MeetingBooking.objects.create(
+            room=self.room1,
+            organizer=self.user1,
+            title="Lịch họp của User 1",
+            date=target_date,
+            start_time=time(14, 0),
+            end_time=time(15, 0),
+            attendees_count=5,
+            trang_thai=MeetingBooking.Status.CONFIRMED,
+        )
+
+        # 1. User 1 (người đặt, có change_own_datphonghop) sửa lịch của mình -> 200 OK
+        self.client.force_authenticate(user=self.user1)
+        res_own = self.client.patch(
+            f"/api/meeting-bookings/{booking.id}/",
+            {"title": "User 1 đổi tiêu đề"},
+        )
+        self.assertEqual(res_own.status_code, status.HTTP_200_OK)
+
+        # 2. User 2 (chỉ có add_datphonghop và change_own_datphonghop, không phải người đặt) sửa -> 403 Forbidden
+        self.client.force_authenticate(user=self.user2)
+        res_other = self.client.patch(
+            f"/api/meeting-bookings/{booking.id}/",
+            {"title": "User 2 cố tình sửa"},
+        )
+        self.assertEqual(res_other.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("meetings.messages.permissionDenied", str(res_other.data))
+
+        # 3. User có quyền change_any_datphonghop (không phải người đặt) sửa -> 200 OK
+        dispatcher = User.objects.create_user(
+            username="dispatcher_updater",
+            email="disp_up@tlbm.vn",
+            password="Password123!",
+        )
+        perm = Permission.objects.get(codename="change_any_datphonghop")
+        dispatcher.user_permissions.add(perm)
+
+        self.client.force_authenticate(user=dispatcher)
+        res_disp = self.client.patch(
+            f"/api/meeting-bookings/{booking.id}/",
+            {"title": "Điều phối viên sửa tiêu đề"},
+        )
+        self.assertEqual(res_disp.status_code, status.HTTP_200_OK)
+        booking.refresh_from_db()
+        self.assertEqual(booking.title, "Điều phối viên sửa tiêu đề")
+
+    def test_booking_boundary_conditions(self):
+        """Kiểm thử giá trị biên: attendees_count (đúng capacity: 201; > capacity / <= 0: 400), end <= start (400), title rỗng (400)."""
+        fixed_now = timezone.make_aware(datetime.combine(timezone.localdate(), time(10, 0)))
+        with mock.patch("django.utils.timezone.now", return_value=fixed_now):
+            self.client.force_authenticate(user=self.user1)
+            target_date = (timezone.localdate() + timedelta(days=6)).isoformat()
+
+            # Room1 capacity = 15
+            # 1. attendees_count == capacity (15) -> 201 Created
+            res_exact = self.client.post("/api/meeting-bookings/", {
+                "room": self.room1.id,
+                "title": "Họp đúng sức chứa",
+                "date": target_date,
+                "start_time": "13:00:00",
+                "end_time": "14:00:00",
+                "attendees_count": 15,
+            })
+            self.assertEqual(res_exact.status_code, status.HTTP_201_CREATED)
+
+            # 2. attendees_count > capacity (16) -> 400 Bad Request kèm key capacityExceeded
+            res_over = self.client.post("/api/meeting-bookings/", {
+                "room": self.room1.id,
+                "title": "Họp quá sức chứa",
+                "date": target_date,
+                "start_time": "14:00:00",
+                "end_time": "15:00:00",
+                "attendees_count": 16,
+            })
+            self.assertEqual(res_over.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("meetings.messages.capacityExceeded", str(res_over.data))
+
+            # 3. attendees_count == 0 -> 400 Bad Request kèm key attendeesRequired
+            res_zero = self.client.post("/api/meeting-bookings/", {
+                "room": self.room1.id,
+                "title": "Họp 0 người",
+                "date": target_date,
+                "start_time": "14:00:00",
+                "end_time": "15:00:00",
+                "attendees_count": 0,
+            })
+            self.assertEqual(res_zero.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("meetings.messages.attendeesMustBePositive", str(res_zero.data))
+
+            # 4. attendees_count < 0 -> 400 Bad Request kèm key attendeesMustBePositive
+            res_neg = self.client.post("/api/meeting-bookings/", {
+                "room": self.room1.id,
+                "title": "Họp số người âm",
+                "date": target_date,
+                "start_time": "14:00:00",
+                "end_time": "15:00:00",
+                "attendees_count": -5,
+            })
+            self.assertEqual(res_neg.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("meetings.messages.attendeesMustBePositive", str(res_neg.data))
+
+            # 5. end_time < start_time -> 400 Bad Request kèm key invalidTimeRange
+            res_reverse = self.client.post("/api/meeting-bookings/", {
+                "room": self.room1.id,
+                "title": "Họp giờ ngược",
+                "date": target_date,
+                "start_time": "15:00:00",
+                "end_time": "14:00:00",
+                "attendees_count": 5,
+            })
+            self.assertEqual(res_reverse.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("meetings.messages.invalidTimeRange", str(res_reverse.data))
+
+            # 6. end_time == start_time -> 400 Bad Request kèm key invalidTimeRange
+            res_equal = self.client.post("/api/meeting-bookings/", {
+                "room": self.room1.id,
+                "title": "Họp giờ bằng nhau",
+                "date": target_date,
+                "start_time": "15:00:00",
+                "end_time": "15:00:00",
+                "attendees_count": 5,
+            })
+            self.assertEqual(res_equal.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("meetings.messages.invalidTimeRange", str(res_equal.data))
+
+            # 7. title rỗng hoặc chỉ có khoảng trắng -> 400 Bad Request kèm key titleRequired
+            res_blank_title = self.client.post("/api/meeting-bookings/", {
+                "room": self.room1.id,
+                "title": "   ",
+                "date": target_date,
+                "start_time": "15:00:00",
+                "end_time": "16:00:00",
+                "attendees_count": 5,
+            })
+            self.assertEqual(res_blank_title.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("meetings.messages.titleRequired", str(res_blank_title.data))
+
 
 @skipUnless(connection.vendor == "postgresql", "Kiểu ENUM và ràng buộc EXCLUDE chỉ có trên PostgreSQL")
 class MeetingsReleaseDdlSchemaTestCase(TestCase):
@@ -1102,3 +1463,88 @@ class MeetingsReleaseDdlSchemaTestCase(TestCase):
         MeetingBooking.objects.create(room=room, organizer=user, title="Đã hủy", date=booking_date,
                                       start_time=time(9, 30), end_time=time(10, 30),
                                       trang_thai=MeetingBooking.Status.CANCELLED)
+
+
+class MeetingBookingConcurrencyTestCase(TransactionTestCase):
+    """Kiểm thử tương tranh: 2 request đồng thời đặt cùng phòng và khung giờ."""
+
+    @classmethod
+    def _fixture_setup(cls):
+        pass
+
+    @classmethod
+    def _fixture_teardown(cls):
+        pass
+
+    def tearDown(self):
+        super().tearDown()
+        MeetingBooking.objects.filter(title="Họp Tranh Chấp Slot").delete()
+        MeetingRoom.objects.filter(name="Phòng Họp Tương Tranh").delete()
+        User.objects.filter(username="concurrent_user").delete()
+
+    def test_concurrent_bookings_same_slot_exactly_one_succeeds(self):
+        ensure_permissions_seeded()
+        user = User.objects.create_user(
+            username="concurrent_user",
+            email="conc@tlbm.vn",
+            password="Password123!",
+        )
+        booking_perms = Permission.objects.filter(
+            codename__in=["add_datphonghop", "change_own_datphonghop", "view_schedule_phonghop"]
+        )
+        user.user_permissions.add(*booking_perms)
+
+        room = MeetingRoom.objects.create(
+            name="Phòng Họp Tương Tranh",
+            capacity=20,
+            is_public=True,
+        )
+        target_date = (timezone.localdate() + timedelta(days=14)).isoformat()
+        payload = {
+            "room": room.id,
+            "title": "Họp Tranh Chấp Slot",
+            "date": target_date,
+            "start_time": "15:00:00",
+            "end_time": "16:00:00",
+            "attendees_count": 5,
+        }
+
+        results = []
+        barrier = threading.Barrier(2)
+
+        def make_booking():
+            connection.close()
+            client = APIClient()
+            client.force_authenticate(user=user)
+            try:
+                barrier.wait(timeout=5)
+            except threading.BrokenBarrierError:
+                pass
+            res = client.post("/api/meeting-bookings/", payload)
+            results.append(res.status_code)
+            connection.close()
+
+        t1 = threading.Thread(target=make_booking)
+        t2 = threading.Thread(target=make_booking)
+
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        # Một request thành công 201, một request bị từ chối 400, không có lỗi 500
+        self.assertEqual(results.count(status.HTTP_201_CREATED), 1, f"Results: {results}")
+        self.assertEqual(results.count(status.HTTP_400_BAD_REQUEST), 1, f"Results: {results}")
+        self.assertNotIn(status.HTTP_500_INTERNAL_SERVER_ERROR, results)
+
+        # Số bản ghi đặt phòng trong DB chính xác là 1
+        created_count = MeetingBooking.objects.filter(
+            room=room,
+            date=target_date,
+            start_time=time(15, 0),
+            end_time=time(16, 0),
+            trang_thai=MeetingBooking.Status.CONFIRMED,
+        ).count()
+        self.assertEqual(created_count, 1)
+
+

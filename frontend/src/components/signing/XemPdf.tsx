@@ -5,7 +5,7 @@
  * Inline style chỉ dùng cho tọa độ động lúc chạy (ngoại lệ được phép trong DESIGN_TOKENS_AUDIT mục 2.4).
  */
 import { useEffect, useRef, useState } from 'react';
-import { moPdf, veTrang, type TaiLieuPdf } from '@lib/signing/pdf';
+import { laLoiHuyVe, moPdf, veTrang, type TaiLieuPdf } from '@lib/signing/pdf';
 import { useSigningT } from '@lib/signing/i18n';
 import { kep } from '@lib/signing/viTri';
 import { DangTai, ThongBao } from './ChungUI';
@@ -77,8 +77,20 @@ function TrangPdf({ pdf, so, rong, khung, khungDangDat, onDat, onKeo }: {
 } & Pick<Props, 'khungDangDat' | 'onDat' | 'onKeo'>) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const { t } = useSigningT();
+  const [loiVe, setLoiVe] = useState(false);
   useEffect(() => {
-    if (canvas.current && rong > 0) veTrang(pdf, so, canvas.current, rong).catch(() => undefined);
+    if (!canvas.current || rong <= 0) return undefined;
+    let huy = false;
+    const ve = veTrang(pdf, so, canvas.current, rong);
+    ve.xong.then(() => !huy && setLoiVe(false), (err) => {
+      if (huy || laLoiHuyVe(err)) return;  // lần vẽ bị thay bằng lần mới (đổi kích thước), không phải lỗi
+      console.error('Không vẽ được trang PDF', so, err);
+      setLoiVe(true);
+    });
+    return () => {
+      huy = true;
+      ve.huy();
+    };
   }, [pdf, so, rong]);
   return (
     <figure className="space-y-1">
@@ -94,6 +106,7 @@ function TrangPdf({ pdf, so, rong, khung, khungDangDat, onDat, onKeo }: {
         <canvas ref={canvas} className="block w-full h-auto" aria-label={t('tao.trang', { so })} />
         {khung.map((k) => <KhungKy key={k.id} k={k} onKeo={onKeo} />)}
       </div>
+      {loiVe && <ThongBao>{t('loi.khong_hien_thi_duoc_pdf')}</ThongBao>}
       <figcaption className="text-center text-xs text-muted">{t('tao.trang', { so })}</figcaption>
     </figure>
   );
@@ -116,7 +129,10 @@ export default function XemPdf({ duLieu, khung = [], khungDangDat, onDat, onKeo,
         setMo({ nguon: duLieu, pdf: tai_lieu, loi: false });
         onSoTrang?.(tai_lieu.numPages);
       })
-      .catch(() => !huy && setMo({ nguon: duLieu, pdf: null, loi: true }));
+      .catch((err) => {
+        console.error('Không mở được PDF', err);
+        if (!huy) setMo({ nguon: duLieu, pdf: null, loi: true });
+      });
     return () => {
       huy = true;
     };
@@ -132,8 +148,8 @@ export default function XemPdf({ duLieu, khung = [], khungDangDat, onDat, onKeo,
   }, []);
 
   return (
-    <div ref={khungChua} className="space-y-4">
-      {loi && <ThongBao>{t('loi.tep_khong_phai_pdf')}</ThongBao>}
+    <div ref={khungChua} className="mx-auto w-full max-w-3xl space-y-4">
+      {loi && <ThongBao>{t('loi.khong_hien_thi_duoc_pdf')}</ThongBao>}
       {!pdf && !loi && <DangTai />}
       {pdf && Array.from({ length: pdf.numPages }, (_, i) => i + 1).map((so) => (
         <TrangPdf key={so} pdf={pdf} so={so} rong={rong} khung={khung.filter((k) => k.trang === so)}

@@ -162,6 +162,8 @@
       "HAN_CHE": "Restricted"
     },
     "destination": {
+      "loadingContext": "Loading dossier context…",
+      "contextUnavailable": "The dossier could not be verified. Close this dialog and reload the list before trying again.",
       "title": "Choose document list",
       "direction": "Incoming or outgoing",
       "restricted": "Restricted documents only",

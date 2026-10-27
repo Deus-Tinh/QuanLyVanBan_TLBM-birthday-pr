@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 /**
  * Khung cửa sổ bật lên dùng chung cho module Công việc.
@@ -42,6 +43,8 @@ export default function WorkModal({
   closeOnOverlayClick = false,
   busy = false,
 }: WorkModalProps) {
+  const isMobile = useIsMobile();
+
   useEffect(() => {
     if (!open) return undefined;
 
@@ -78,9 +81,9 @@ export default function WorkModal({
         background: 'rgba(2, 6, 23, 0.6)',
         backdropFilter: 'var(--backdrop-blur)',
         display: 'flex',
-        alignItems: 'center',
+        alignItems: isMobile ? 'stretch' : 'center',
         justifyContent: 'center',
-        padding: '16px',
+        padding: isMobile ? '0' : '16px',
       }}
     >
       <div
@@ -89,14 +92,15 @@ export default function WorkModal({
         aria-label={title}
         style={{
           width: '100%',
-          maxWidth: WIDTHS[width],
-          maxHeight: 'calc(100vh - 32px)',
+          maxWidth: isMobile ? '100%' : WIDTHS[width],
+          maxHeight: isMobile ? '100vh' : 'calc(100vh - 32px)',
+          height: isMobile ? '100vh' : 'auto',
           display: 'flex',
           flexDirection: 'column',
           background: 'var(--bg-surface)',
-          border: '1px solid var(--border-subtle)',
-          borderRadius: 'var(--radius-lg)',
-          boxShadow: 'var(--shadow-lg)',
+          border: isMobile ? 'none' : '1px solid var(--border-subtle)',
+          borderRadius: isMobile ? 0 : 'var(--radius-lg)',
+          boxShadow: isMobile ? 'none' : 'var(--shadow-lg)',
           overflow: 'hidden',
         }}
       >
@@ -106,7 +110,7 @@ export default function WorkModal({
             alignItems: 'flex-start',
             justifyContent: 'space-between',
             gap: '12px',
-            padding: '16px 20px',
+            padding: isMobile ? '14px 16px' : '16px 20px',
             borderBottom: '1px solid var(--border-subtle)',
           }}
         >
@@ -136,7 +140,7 @@ export default function WorkModal({
           </button>
         </div>
 
-        <div style={{ padding: '18px 20px', overflowY: 'auto', flex: 1 }}>{children}</div>
+        <div style={{ padding: isMobile ? '14px 16px' : '18px 20px', overflowY: 'auto', flex: 1 }}>{children}</div>
 
         {footer && (
           <div
@@ -144,7 +148,7 @@ export default function WorkModal({
               display: 'flex',
               justifyContent: 'flex-end',
               gap: '10px',
-              padding: '14px 20px',
+              padding: isMobile ? '12px 16px' : '14px 20px',
               borderTop: '1px solid var(--border-subtle)',
               background: 'var(--bg-surface-hover)',
               flexWrap: 'wrap',

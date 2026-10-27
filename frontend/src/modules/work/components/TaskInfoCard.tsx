@@ -1,4 +1,5 @@
 import React from 'react';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { Employee } from '../types/employee';
 import { TaskDetail } from '../types/task';
 import { daysUntil, isoToDisplay } from './DateInput';
@@ -47,13 +48,14 @@ function DeadlineHint({ task }: { task: TaskDetail }) {
 }
 
 export default function TaskInfoCard({ task, onError }: TaskInfoCardProps) {
+  const isMobile = useIsMobile();
   return (
     <section
       style={{
         background: 'var(--bg-surface)',
         border: '1px solid var(--border-subtle)',
         borderRadius: 'var(--radius-xl)',
-        padding: '18px 20px',
+        padding: isMobile ? '14px 14px' : '18px 20px',
         boxShadow: 'var(--shadow-sm)',
       }}
     >

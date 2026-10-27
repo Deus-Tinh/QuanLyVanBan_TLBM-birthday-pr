@@ -76,7 +76,9 @@ def gui_tin_nhan(yeu_cau, nguoi, *, noi_dung):
     if not duoc_trao_doi(thread, nguoi):
         raise SigningError(code="khong_co_quyen", detail="Chỉ người tạo hồ sơ và người yêu cầu sửa được trao đổi.",
                            status_code=status.HTTP_403_FORBIDDEN)
-    return SigningChangeMessage.objects.create(yeu_cau_sua=thread, nguoi_viet=nguoi, noi_dung=noi_dung)
+    tin = SigningChangeMessage.objects.create(yeu_cau_sua=thread, nguoi_viet=nguoi, noi_dung=noi_dung)
+    thong_bao.tin_nhan(tin, yeu_cau.create_by if nguoi.pk == thread.nguoi_yeu_cau_id else thread.nguoi_yeu_cau)
+    return tin
 
 
 def _cap_ky_luot_cu(luot_cu):

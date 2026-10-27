@@ -185,6 +185,7 @@ GVHD đã chốt bỏ văn bản mật hành chính. Tài liệu nội bộ hạ
 - Chính sách PIN: 8 chữ số; chặn dãy tăng/giảm, lặp một chữ số, dạng ngày `ddmmyyyy`, PIN phổ biến.
 - Mất PIN: không khôi phục. Thu hồi khóa cũ, cấp khóa mới sau khi quản trị xác minh danh tính; khóa cũ giữ để xác minh chữ ký lịch sử. Đổi PIN: bọc lại private key (cần PIN cũ), không sinh khóa mới.
 - Đổi PIN xoay vòng `k_srv` (Phase 6c): server sinh `k_srv` mới, trả cả `k_srv` cũ (mở bản bọc cũ) và mới (bọc lại) trong cùng response. Lý do: `k_srv` được trả ở mọi lần mở khóa; nếu không xoay vòng thì lộ `k_srv` một lần là đoán PIN offline được mãi, và đổi PIN khi nghi lộ không khôi phục được an toàn. Đã triển khai ở Phase 6c; đổi PIN thất bại không đổi `k_srv`.
+- File khóa (chốt MVP Nhóm 5, 23/10/2026): bản bọc private key (AES-GCM, khóa bọc từ PIN + salt qua Argon2id và `k_srv`) được xuất ra file `.tlbmkey` do người ký giữ; ký bằng cách tải file lên trình duyệt và nhập PIN. File chỉ đọc ở trình duyệt, không gửi lên server; vẫn cần `k_srv` (server trả sau khi xác minh PIN, có giới hạn số lần sai) nên lộ file không đủ để đoán PIN offline. Đổi PIN xoay vòng `k_srv` nên phải xuất lại file.
 - MVP: một khóa `HOAT_DONG` trên một thiết bị. Đổi thiết bị là đăng ký khóa mới qua `xoay-vong`. Quy tắc cứng: bản bọc private key không lưu và không đồng bộ lên server; nếu sau này đồng bộ đa thiết bị thì thiết kế này mất tác dụng.
 - Giới hạn (`[FACT]` về phạm vi bảo vệ): PIN không chống XSS/malware ghi phím lúc nhập; không nâng giá trị pháp lý của chữ ký nội bộ. Giảm XSS bằng CSP chặt, không script bên thứ ba, màn hình ký hiển thị tên tệp và mã băm để người ký xác nhận.
 - Ước tính (`[ĐỀ XUẤT]`, chưa đo): với 8 chữ số (~26,6 bit) nếu chỉ bọc bằng PIN thì bản bọc bị đoán offline trong vài giờ với vài trăm core; vì vậy cần `k_srv` và khóa theo số lần sai.
@@ -696,8 +697,10 @@ Trả lại để sửa, đã triển khai ở lõi Phase 9 (#80):
 - `POST /signing/trinh-ky/{id}/trao-doi/`: `noi_dung`; chỉ người tạo hồ sơ và người yêu cầu sửa, khi thread đang mở và hồ sơ còn `CHO_KY`.
 - `POST /signing/trinh-ky/{id}/giai-quyet/` (multipart `tep`, tùy chọn `vi_tri_ky` dạng chuỗi JSON theo id dòng người ký lượt hiện hành; mặc định giữ vị trí lượt trước, tệp mới ít trang hơn thì báo lỗi): người tạo hồ sơ (quyền `send_trinhky`, `Idempotency-Key`) tải bản sửa; server băm, tăng `phien_ban_van_ban`, thread `DA_GIAI_QUYET`, tạo lượt mới (`luot_truoc`) cùng cấp và người ký của lượt cũ, mở cấp đầu; toàn bộ các cấp ký lại. Chữ ký lượt cũ giữ làm lịch sử, không dùng cho tệp mới (mã băm khác). Có người ký không còn hoạt động thì lỗi `khong_xac_dinh_duoc_nguoi_ky`, chưa lưu tệp.
 
+Ủy quyền khẩn cấp, đã triển khai (23/10/2026, [`du-lieu-mau-va-tinh-trang-nghiep-vu.md`](du-lieu-mau-va-tinh-trang-nghiep-vu.md) mục 4):
+- `POST /signing/trinh-ky/{id}/uy-quyen/`: `dong_nguoi_ky`, `nguoi_nhan`, `ly_do_uy_quyen` bắt buộc; quyền `delegate_trinhky` kèm vai trò quản trị, Ban Giám đốc hoặc Trưởng phòng cùng đơn vị người ký (thay cho "cấp trên trực tiếp" khi Nhóm 7 chưa có dữ liệu này); `Idempotency-Key`. Chưa ghi `hinh_thuc_ky` vì DDL chưa có cột.
+
 Ngoài MVP (#80 mục 8), giữ trong roadmap:
-- `POST /signing/trinh-ky/{id}/uy-quyen/`: ủy quyền khẩn cấp; `nguoi_ky` mới, `ly_do_uy_quyen`, `hinh_thuc_ky` bắt buộc; chỉ cấp trên trực tiếp hoặc quản trị.
 - `GET|POST /signing/uy-quyen/`, `POST /signing/uy-quyen/{id}/huy/`: ủy quyền theo thời gian.
 
 ### 7.4. Khóa, nhật ký, bằng chứng tổng hợp

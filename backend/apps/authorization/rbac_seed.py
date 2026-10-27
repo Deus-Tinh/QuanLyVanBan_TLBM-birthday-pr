@@ -131,6 +131,7 @@ GROUP_PERMISSIONS = {'Văn thư': ['view_donvi',
                  'view_tailieu',
                  'view_trinhky',
                  'add_trinhky',
+                 'send_trinhky',
                  'view_congviec',
                  'view_dept_congviec',
                  'add_congviec',
@@ -282,4 +283,12 @@ EXTRA_PERMISSIONS = [
 ]
 EXTRA_GROUP_PERMISSIONS = {
     "Quản trị hệ thống": [codename for _, codename, _ in EXTRA_PERMISSIONS],
+}
+
+# Nhóm chuẩn bổ sung (issue #228): chỉ chứa quyền cộng thêm, người dùng giữ nhóm Chuyên viên.
+# Migration 0008_supplementary_groups_tlbgd_kt chép cố định bảng này tại thời điểm tạo migration.
+SUPPLEMENTARY_GROUPS = [("Trợ lý Ban Giám đốc", "TLBGD"), ("Kiểm toán", "KT")]
+SUPPLEMENTARY_GROUP_PERMISSIONS = {
+    "TLBGD": ["view_all_congviec", "view_read_log_vanbanden", "view_read_log_vanbandi", "send_trinhky"],
+    "KT": ["view_signing_audit", "view_read_log_vanbanden", "view_read_log_vanbandi"],
 }

@@ -10,6 +10,7 @@ import TaskInfoCard from '../components/TaskInfoCard';
 import TaskPeopleCard from '../components/TaskPeopleCard';
 import TaskStatusBadge from '../components/TaskStatusBadge';
 import WorkAlert, { WorkAlertVariant } from '../components/WorkAlert';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { Attachment, TaskComment, TaskDetail } from '../types/task';
 
 /**
@@ -53,6 +54,7 @@ function statusNotice(task: TaskDetail): { variant: WorkAlertVariant; message: s
 }
 
 export default function TaskDetailPage({ taskId, onBack }: TaskDetailPageProps) {
+  const isMobile = useIsMobile();
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
@@ -216,7 +218,7 @@ export default function TaskDetailPage({ taskId, onBack }: TaskDetailPageProps) 
         >
           <i className="fa-solid fa-arrow-left" />
         </button>
-        <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>Chi tiết xử lý công việc</h1>
+        <h1 style={{ fontSize: isMobile ? '1.05rem' : '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>Chi tiết xử lý công việc</h1>
         <TaskStatusBadge status={task.status} label={task.statusLabel} />
         {!task.isPublic && (
           <span

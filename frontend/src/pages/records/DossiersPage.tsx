@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from '@lib/apiClient';
 import { recordsService } from '@lib/recordsService';
+import { dossierDocumentTypesDestination } from '@lib/recordsDocumentNavigation';
 import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@components/common';
 import ConfirmDialog from '@components/records/ConfirmDialog';
 import Pagination from '@components/records/Pagination';
@@ -294,7 +295,7 @@ export default function DossiersPage() {
                 </TableRow></TableHeader>
                 <TableBody>
                   {items.map((item, index) => (
-                    <TableRow key={item.id} className="cursor-pointer" onClick={() => navigate(`/records/${item.id}/document-types`, { state: { dossier: item } })}>
+                    <TableRow key={item.id} className="cursor-pointer" onClick={() => navigate(dossierDocumentTypesDestination(item))}>
                       <TableCell>{item.stt_uu_tien ?? (page - 1) * PAGE_SIZE + index + 1}</TableCell>
                       <TableCell><Badge variant="secondary">{item.so_ky_hieu || '—'}</Badge></TableCell>
                       <TableCell><div className="font-semibold text-main">{item.ten_ho_so}</div>{item.ghi_chu && <div className="mt-1 max-w-sm truncate text-xs text-muted">{item.ghi_chu}</div>}</TableCell>
@@ -302,7 +303,7 @@ export default function DossiersPage() {
                       <TableCell className="whitespace-nowrap">{displayDate(item.ngay_lap, currentLang === 'vi' ? 'vi-VN' : 'en-US')}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1">
-                          <Button type="button" size="sm" variant="ghost" icon="fa-folder-open" onClick={(event) => { event.stopPropagation(); navigate(`/records/${item.id}/document-types`, { state: { dossier: item } }); }} aria-label={t('records.dossiers.viewDocumentTypesLabel', { name: item.ten_ho_so })}>{t('records.actions.view')}</Button>
+                          <Button type="button" size="sm" variant="ghost" icon="fa-folder-open" onClick={(event) => { event.stopPropagation(); navigate(dossierDocumentTypesDestination(item)); }} aria-label={t('records.dossiers.viewDocumentTypesLabel', { name: item.ten_ho_so })}>{t('records.actions.view')}</Button>
                           <Button type="button" size="sm" variant="ghost" icon="fa-pen" onClick={(event) => { event.stopPropagation(); setSaveError(null); setEditing(item); }} aria-label={t('records.dossiers.editLabel', { name: item.ten_ho_so })} />
                           {!item.is_he_thong && (
                             <Button type="button" size="sm" variant="ghost" icon="fa-trash" className="text-danger hover:text-danger" onClick={(event) => { event.stopPropagation(); setDeleting(item); }} aria-label={t('records.dossiers.deleteLabel', { name: item.ten_ho_so })} />

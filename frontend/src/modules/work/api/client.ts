@@ -1,7 +1,9 @@
 // Lớp gọi API dùng chung cho module Công việc.
 // Mọi lỗi từ máy chủ được chuyển thành câu tiếng Việt có hướng khắc phục để hiển thị thẳng cho người dùng.
 
-const RAW_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+const RAW_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL.replace(/\/+$/, '')}/api` : '/api');
 export const API_BASE_URL = RAW_BASE_URL.replace(/\/+$/, '');
 
 // ---------------------------------------------------------------------------
@@ -13,7 +15,11 @@ export const ACCESS_TOKEN_STORAGE_KEY = 'tlbm_access_token';
 
 export function getAccessToken(): string {
   try {
-    return window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) || '';
+    return (
+      window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ||
+      window.localStorage.getItem('tlbm_token') ||
+      ''
+    );
   } catch {
     return '';
   }
@@ -55,7 +61,13 @@ interface RequestOptions {
 }
 
 function buildUrl(path: string, params?: RequestOptions['params']): string {
-  const url = new URL(`${API_BASE_URL}/${path.replace(/^\/+/, '')}`);
+  const cleanPath = path.replace(/^\/+/, '');
+  const rawUrl = `${API_BASE_URL}/${cleanPath}`;
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'http://127.0.0.1:8000';
+  const url = new URL(rawUrl, origin);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') {

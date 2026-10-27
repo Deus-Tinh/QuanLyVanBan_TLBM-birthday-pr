@@ -15,6 +15,8 @@ import { Button } from '@components/common/Button';
 import { Toast, ToastNotification } from '@components/resources/Toast';
 import { useTranslation } from '@i18n/translate';
 import { apiClient } from '@lib/apiClient';
+import { authService } from '@lib/authService';
+import { computeEffectiveStatus } from '@lib/resourceValidity';
 
 const STORAGE_KEY = 'tlbm_resources_filter_state';
 const STORAGE_DOCS = 'tlbm_documents_v2';
@@ -23,15 +25,53 @@ const STORAGE_TYPES = 'tlbm_types_v2';
 const STORAGE_VISIBLE_CATS = 'tlbm_visible_categories_v2';
 const STORAGE_VISIBLE_TYPES = 'tlbm_visible_types_v2';
 
+const SYNC_CHANNEL_NAME = 'tlbm_resource_realtime_sync';
+const SYNC_STORAGE_KEY = 'tlbm_resource_realtime_event';
+
+const notifyMutation = () => {
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel(SYNC_CHANNEL_NAME);
+      channel.postMessage({ action: 'MUTATION', timestamp: Date.now() });
+      channel.close();
+    }
+    localStorage.setItem(SYNC_STORAGE_KEY, Date.now().toString());
+  } catch {
+    /* ignore */
+  }
+};
+
+export type SearchScopeType = 'all' | 'title' | 'code' | 'authority' | 'author' | 'attachment';
+
 interface PersistedResourceState {
   category?: string;
   type?: string;
   year?: string;
   status?: string;
   q?: string;
+  searchField?: SearchScopeType;
   page?: number;
   pageSize?: number;
 }
+
+const normalizeSearchText = (str?: string | null): string => {
+  return (str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .trim();
+};
+
+const SEARCH_FIELD_OPTIONS: { value: SearchScopeType; labelKey: string; icon: string; placeholderKey: string }[] = [
+  { value: 'all', labelKey: 'searchScopeAll', icon: 'fa-solid fa-layer-group', placeholderKey: 'searchPlaceholderAll' },
+  { value: 'title', labelKey: 'searchScopeTitle', icon: 'fa-solid fa-heading', placeholderKey: 'searchPlaceholderTitle' },
+  { value: 'code', labelKey: 'searchScopeCode', icon: 'fa-solid fa-hashtag', placeholderKey: 'searchPlaceholderCode' },
+  { value: 'authority', labelKey: 'searchScopeAuthority', icon: 'fa-solid fa-building-columns', placeholderKey: 'searchPlaceholderAuthority' },
+  { value: 'author', labelKey: 'searchScopeAuthor', icon: 'fa-solid fa-user-pen', placeholderKey: 'searchPlaceholderAuthor' },
+  { value: 'attachment', labelKey: 'searchScopeAttachment', icon: 'fa-solid fa-paperclip', placeholderKey: 'searchPlaceholderAttachment' },
+];
 
 const getInitialFilterState = (searchParams: URLSearchParams): PersistedResourceState => {
   // Kiểm tra xem lần tải trang này có phải là Reload (F5 / Refresh) của trình duyệt hay không
@@ -56,6 +96,7 @@ const getInitialFilterState = (searchParams: URLSearchParams): PersistedResource
       year: searchParams.get('year') || undefined,
       status: searchParams.get('status') || undefined,
       q: searchParams.get('q') || undefined,
+      searchField: (searchParams.get('search_field') as SearchScopeType) || undefined,
       page: searchParams.get('page') ? Number(searchParams.get('page')) : undefined,
       pageSize: searchParams.get('pageSize') ? Number(searchParams.get('pageSize')) : undefined,
     };
@@ -126,35 +167,41 @@ export default function ResourceManagementPage() {
   });
 
   // Tự động đồng bộ các danh mục hiển thị khi nạp danh mục:
-  // - Nếu chưa từng tùy chỉnh (saved === null): Mặc định hiển thị toàn bộ danh mục
-  // - Nếu đã tùy chỉnh: Giữ nguyên 100% lựa chọn của người dùng, chỉ loại bỏ danh mục đã bị xóa trong CSDL
+  // - Nếu chưa từng tùy chỉnh hoặc prev rỗng: Mặc định hiển thị toàn bộ danh mục
+  // - Nếu có danh mục mới được tạo từ client/tab khác: Tự động thêm vào danh sách hiển thị
+  // - Giữ nguyên các danh mục hợp lệ còn tồn tại trong CSDL
   useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect */
     if (categories.length > 0) {
       const allCatIds = categories.map((c) => c.id);
-      const saved = localStorage.getItem(STORAGE_VISIBLE_CATS);
+      setVisibleCategoryIds((prev) => {
+        const stillExisting = prev.filter((id) => allCatIds.includes(id));
+        const newCatIds = allCatIds.filter((id) => !prev.includes(id));
 
-      if (saved === null) {
-        setVisibleCategoryIds(allCatIds);
-        try {
-          localStorage.setItem(STORAGE_VISIBLE_CATS, JSON.stringify(allCatIds));
-        } catch {
-          /* ignore */
-        }
-      } else {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) {
-            const valid = parsed.filter((id) => allCatIds.includes(id));
-            setVisibleCategoryIds(valid);
-          } else {
-            setVisibleCategoryIds(allCatIds);
+        if (!isCategoriesLoadedRef.current || prev.length === 0) {
+          const saved = localStorage.getItem(STORAGE_VISIBLE_CATS);
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                const valid = parsed.filter((id) => allCatIds.includes(id));
+                const extraNew = allCatIds.filter((id) => !parsed.includes(id));
+                return [...valid, ...extraNew];
+              }
+            } catch {
+              /* ignore */
+            }
           }
-        } catch {
-          setVisibleCategoryIds(allCatIds);
+          return allCatIds;
         }
-      }
+
+        if (newCatIds.length > 0) {
+          return [...stillExisting, ...newCatIds];
+        }
+        return stillExisting;
+      });
       isCategoriesLoadedRef.current = true;
+    } else if (isCategoriesLoadedRef.current) {
+      setVisibleCategoryIds([]);
     }
   }, [categories]);
 
@@ -205,35 +252,41 @@ export default function ResourceManagementPage() {
   });
 
   // Tự động đồng bộ các loại tài liệu hiển thị:
-  // - Nếu chưa từng tùy chỉnh (saved === null): Mặc định hiển thị toàn bộ loại tài liệu
-  // - Nếu đã tùy chỉnh: Giữ nguyên 100% lựa chọn của người dùng, chỉ loại bỏ loại đã bị xóa trong CSDL
+  // - Nếu chưa từng tùy chỉnh hoặc prev rỗng: Mặc định hiển thị toàn bộ loại tài liệu
+  // - Nếu có loại tài liệu mới được tạo từ client/tab khác: Tự động thêm vào danh sách hiển thị
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     if (types.length > 0) {
       const allTypeIds = types.map((t) => t.id);
-      const saved = localStorage.getItem(STORAGE_VISIBLE_TYPES);
+      setVisibleTypeIds((prev) => {
+        const stillExisting = prev.filter((id) => allTypeIds.includes(id));
+        const newTypeIds = allTypeIds.filter((id) => !prev.includes(id));
 
-      if (saved === null) {
-        setVisibleTypeIds(allTypeIds);
-        try {
-          localStorage.setItem(STORAGE_VISIBLE_TYPES, JSON.stringify(allTypeIds));
-        } catch {
-          /* ignore */
-        }
-      } else {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) {
-            const valid = parsed.filter((id) => allTypeIds.includes(id));
-            setVisibleTypeIds(valid);
-          } else {
-            setVisibleTypeIds(allTypeIds);
+        if (!isTypesLoadedRef.current || prev.length === 0) {
+          const saved = localStorage.getItem(STORAGE_VISIBLE_TYPES);
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                const valid = parsed.filter((id) => allTypeIds.includes(id));
+                const extraNew = allTypeIds.filter((id) => !parsed.includes(id));
+                return [...valid, ...extraNew];
+              }
+            } catch {
+              /* ignore */
+            }
           }
-        } catch {
-          setVisibleTypeIds(allTypeIds);
+          return allTypeIds;
         }
-      }
+
+        if (newTypeIds.length > 0) {
+          return [...stillExisting, ...newTypeIds];
+        }
+        return stillExisting;
+      });
       isTypesLoadedRef.current = true;
+    } else if (isTypesLoadedRef.current) {
+      setVisibleTypeIds([]);
     }
   }, [types]);
 
@@ -262,39 +315,143 @@ export default function ResourceManagementPage() {
 
   // Trạng thái đang tải dữ liệu từ Backend API
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const isFetchingRef = useRef<boolean>(false);
+  const fetchSeqRef = useRef<number>(0);
+  const latestCommittedSeqRef = useRef<number>(0);
+  const pendingForceRefetchRef = useRef<boolean>(false);
 
   // Tải dữ liệu từ Backend API (/api/resources/...)
-  const fetchResources = useCallback(async () => {
-    setIsLoading(true);
+  const fetchResources = useCallback(async (silent?: boolean, force?: boolean): Promise<void> => {
+    if (isFetchingRef.current) {
+      if (force) {
+        pendingForceRefetchRef.current = true;
+      }
+      return;
+    }
+    isFetchingRef.current = true;
+    if (!silent) setIsLoading(true);
+
     try {
-      const [catsRes, typesRes, docsRes] = await Promise.all([
-        apiClient<unknown>('/api/resources/categories/').catch(() => null),
-        apiClient<unknown>('/api/resources/types/').catch(() => null),
-        apiClient<unknown>('/api/resources/documents/').catch(() => null),
-      ]);
+      let keepFetching = true;
+      while (keepFetching) {
+        pendingForceRefetchRef.current = false;
+        const seq = ++fetchSeqRef.current;
 
-      const normalizeList = <T,>(data: unknown): T[] => {
-        if (!data) return [];
-        if (Array.isArray(data)) return data as T[];
-        if (data && typeof data === 'object' && 'results' in data && Array.isArray((data as { results: unknown }).results)) {
-          return (data as { results: T[] }).results;
+        const [catsRes, typesRes, docsRes] = await Promise.all([
+          apiClient<unknown>('/api/resources/categories/?page_size=100').catch((err) => {
+            console.warn('Lỗi tải categories:', err);
+            return null;
+          }),
+          apiClient<unknown>('/api/resources/types/?page_size=100').catch((err) => {
+            console.warn('Lỗi tải types:', err);
+            return null;
+          }),
+          apiClient<unknown>('/api/resources/documents/?page_size=100').catch((err) => {
+            console.warn('Lỗi tải documents:', err);
+            return null;
+          }),
+        ]);
+
+        // Nếu có request mới hơn đã cam kết, bỏ qua response cũ này để tránh race condition
+        if (seq >= latestCommittedSeqRef.current) {
+          latestCommittedSeqRef.current = seq;
+
+          const normalizeList = <T,>(data: unknown): T[] => {
+            if (!data) return [];
+            if (Array.isArray(data)) return data as T[];
+            if (data && typeof data === 'object' && 'results' in data && Array.isArray((data as { results: unknown }).results)) {
+              return (data as { results: T[] }).results;
+            }
+            return [];
+          };
+
+          const isDifferent = (a: unknown, b: unknown) => JSON.stringify(a) !== JSON.stringify(b);
+
+          if (catsRes !== null) {
+            const nextCats = normalizeList<ResourceCategory>(catsRes);
+            setCategories((prev) => (isDifferent(prev, nextCats) ? nextCats : prev));
+            isCategoriesLoadedRef.current = true;
+          }
+
+          if (typesRes !== null) {
+            const nextTypes = normalizeList<ResourceType>(typesRes);
+            setTypes((prev) => (isDifferent(prev, nextTypes) ? nextTypes : prev));
+            isTypesLoadedRef.current = true;
+          }
+
+          if (docsRes !== null) {
+            const nextDocs = normalizeList<ResourceItem>(docsRes);
+            setDocuments((prev) => (isDifferent(prev, nextDocs) ? nextDocs : prev));
+          }
         }
-        return [];
-      };
 
-      setCategories(normalizeList<ResourceCategory>(catsRes));
-      setTypes(normalizeList<ResourceType>(typesRes));
-      setDocuments(normalizeList<ResourceItem>(docsRes));
+        keepFetching = pendingForceRefetchRef.current;
+      }
     } catch (e) {
       console.warn('Lỗi khi tải dữ liệu từ API backend:', e);
     } finally {
-      setIsLoading(false);
+      isFetchingRef.current = false;
+      if (!silent) setIsLoading(false);
     }
   }, []);
 
+  // Refetch ngầm (không hiển thị loading spinner) để đồng bộ dữ liệu real-time
+  const silentRefetch = useCallback((force?: boolean) => {
+    fetchResources(true, force);
+  }, [fetchResources]);
+
+  // Hệ thống đồng bộ Real-time đa tầng:
+  // 1. Initial Load khi component mount
+  // 2. BroadcastChannel: Đồng bộ tức thì (0ms) giữa các tab cùng trình duyệt
+  // 3. Storage Event: Đồng bộ giữa các tab qua localStorage
+  // 4. Window Focus & VisibilityChange: Tự động cập nhật ngay khi người dùng click chuyển qua lại giữa các cửa sổ
+  // 5. Polling định kỳ mỗi 3 giây: Đảm bảo đồng bộ liên tục cho cửa sổ ẩn danh (Incognito) hoặc giữa các thiết bị khác nhau
   useEffect(() => {
     fetchResources();
-  }, [fetchResources]);
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        channel = new BroadcastChannel(SYNC_CHANNEL_NAME);
+        channel.onmessage = () => {
+          silentRefetch(true);
+        };
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === SYNC_STORAGE_KEY) {
+        silentRefetch(true);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    const handleFocus = () => {
+      silentRefetch();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        silentRefetch();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const pollInterval = setInterval(() => {
+      silentRefetch();
+    }, 3000);
+
+    return () => {
+      if (channel) channel.close();
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(pollInterval);
+    };
+  }, [fetchResources, silentRefetch]);
 
 
 
@@ -319,6 +476,35 @@ export default function ResourceManagementPage() {
     }
     return types.filter((t) => t.dm_tai_lieu === Number(selectedCategory));
   }, [types, selectedCategory]);
+
+  // Tự động reset bộ lọc nếu danh mục hoặc loại tài liệu đang chọn bị xóa từ client/tab khác
+  useEffect(() => {
+    if (
+      selectedCategory !== 'all' &&
+      isCategoriesLoadedRef.current &&
+      categories.length > 0 &&
+      !isFetchingRef.current
+    ) {
+      const exists = categories.some((c) => String(c.id) === selectedCategory);
+      if (!exists) {
+        setSelectedCategory('all');
+      }
+    }
+  }, [categories, selectedCategory]);
+
+  useEffect(() => {
+    if (
+      selectedType !== 'all' &&
+      isTypesLoadedRef.current &&
+      types.length > 0 &&
+      !isFetchingRef.current
+    ) {
+      const exists = types.some((t) => String(t.id) === selectedType);
+      if (!exists) {
+        setSelectedType('all');
+      }
+    }
+  }, [types, selectedType]);
 
   const toggleAllTypesVisibility = (selectAll: boolean) => {
     const currentScopeTypeIds = availableTypesForFilter.map((t) => t.id);
@@ -350,9 +536,14 @@ export default function ResourceManagementPage() {
     initialFilterState.pageSize && initialFilterState.pageSize > 0 ? initialFilterState.pageSize : 5
   );
 
-  // Bộ lọc: Search debounced 300ms
+  // Bộ lọc: Search debounced 300ms & Scope
   const [searchInput, setSearchInput] = useState(initialFilterState.q || '');
   const [searchTerm, setSearchTerm] = useState(initialFilterState.q || '');
+  const [searchField, setSearchField] = useState<SearchScopeType>(
+    initialFilterState.searchField || 'all'
+  );
+  const [isSearchFieldDropdownOpen, setIsSearchFieldDropdownOpen] = useState(false);
+  const searchFieldDropdownRef = useRef<HTMLDivElement>(null);
   const isFirstMount = useRef(true);
 
   useEffect(() => {
@@ -399,6 +590,7 @@ export default function ResourceManagementPage() {
       year: selectedYear,
       status: statusFilter,
       q: searchTerm || undefined,
+      searchField: searchField !== 'all' ? searchField : undefined,
       page: currentPage > 1 ? currentPage : undefined,
       pageSize: pageSize !== 5 ? pageSize : undefined,
     };
@@ -415,6 +607,7 @@ export default function ResourceManagementPage() {
     if (selectedYear !== 'all') newParams.set('year', selectedYear);
     if (statusFilter !== 'all') newParams.set('status', statusFilter);
     if (searchTerm.trim()) newParams.set('q', searchTerm.trim());
+    if (searchField !== 'all') newParams.set('search_field', searchField);
     if (currentPage > 1) newParams.set('page', String(currentPage));
     if (pageSize !== 5) newParams.set('pageSize', String(pageSize));
 
@@ -425,6 +618,7 @@ export default function ResourceManagementPage() {
     selectedYear,
     statusFilter,
     searchTerm,
+    searchField,
     currentPage,
     pageSize,
     setSearchParams,
@@ -443,6 +637,12 @@ export default function ResourceManagementPage() {
   const [deleteItem, setDeleteItem] = useState<ResourceItem | null>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Quyền hạn Admin
+  const currentSession = authService.getSession();
+  const isAdmin = currentSession?.role === 'admin' || currentSession?.username === 'admin';
+
+
   // Toast thông báo nổi trên cùng (z-[999999] trên tất cả modal và màn đen)
   const [toast, setToast] = useState<ToastNotification | null>(null);
   const lastToastRef = useRef<{ message: string; time: number } | null>(null);
@@ -652,6 +852,12 @@ export default function ResourceManagementPage() {
       ) {
         setIsStatusDropdownOpen(false);
       }
+      if (
+        searchFieldDropdownRef.current &&
+        !searchFieldDropdownRef.current.contains(target)
+      ) {
+        setIsSearchFieldDropdownOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
@@ -663,6 +869,7 @@ export default function ResourceManagementPage() {
   const handleClearFilters = () => {
     setSearchInput('');
     setSearchTerm('');
+    setSearchField('all');
     setSelectedType('all');
     setSelectedYear('all');
     setStatusFilter('all');
@@ -671,27 +878,59 @@ export default function ResourceManagementPage() {
     setIsTypeDropdownOpen(false);
     setIsYearDropdownOpen(false);
     setIsStatusDropdownOpen(false);
+    setIsSearchFieldDropdownOpen(false);
   };
 
   const hasActiveFilters = Boolean(
     searchTerm.trim() ||
+    searchField !== 'all' ||
     selectedType !== 'all' ||
     selectedYear !== 'all' ||
     statusFilter !== 'all'
   );
 
   // ============================================================================
-  // LỌC DỮ LIỆU BẢNG TỔNG HỢP THEO TẤT CẢ TIÊU CHÍ
+  // LỌC DỮ LIỆU BẢNG TỔNG HỢP THEO TẤT CẢ TIÊU CHÍ (TÌM KIẾM CỤ THỂ & THÔNG MINH)
   // ============================================================================
   const filteredDocuments = useMemo(() => {
     return documents.filter((doc) => {
-      // 1. Tìm kiếm từ khóa (Tiêu đề, Ký hiệu, Nơi ban hành)
+      // 1. Tìm kiếm từ khóa theo tiêu chí cụ thể
       if (searchTerm.trim()) {
-        const term = searchTerm.toLowerCase();
-        const matchTitle = doc.tieu_de.toLowerCase().includes(term);
-        const matchSymbol = (doc.ky_hieu || '').toLowerCase().includes(term);
-        const matchPublisher = (doc.noi_ban_hanh || '').toLowerCase().includes(term);
-        if (!matchTitle && !matchSymbol && !matchPublisher) return false;
+        const rawTerm = searchTerm.toLowerCase().trim();
+        const normTerm = normalizeSearchText(searchTerm);
+
+        const checkMatch = (val?: string | null) => {
+          if (!val) return false;
+          const lower = val.toLowerCase();
+          if (lower.includes(rawTerm)) return true;
+          return normalizeSearchText(val).includes(normTerm);
+        };
+
+        if (searchField === 'title') {
+          if (!checkMatch(doc.tieu_de)) return false;
+        } else if (searchField === 'code') {
+          if (!checkMatch(doc.ky_hieu)) return false;
+        } else if (searchField === 'authority') {
+          if (!checkMatch(doc.noi_ban_hanh)) return false;
+        } else if (searchField === 'author') {
+          if (!checkMatch(doc.nguoi_tao_name)) return false;
+        } else if (searchField === 'attachment') {
+          const matchSingle = checkMatch(doc.file_dinh_kem);
+          const matchMultiple = (doc.attachments || []).some((att) => checkMatch(att.name));
+          if (!matchSingle && !matchMultiple) return false;
+        } else {
+          // 'all': Tìm trên mọi trường
+          const matchTitle = checkMatch(doc.tieu_de);
+          const matchCode = checkMatch(doc.ky_hieu);
+          const matchAuthority = checkMatch(doc.noi_ban_hanh);
+          const matchAuthor = checkMatch(doc.nguoi_tao_name);
+          const matchNote = checkMatch(doc.ghi_chu);
+          const matchSingle = checkMatch(doc.file_dinh_kem);
+          const matchMultiple = (doc.attachments || []).some((att) => checkMatch(att.name));
+          if (!matchTitle && !matchCode && !matchAuthority && !matchAuthor && !matchNote && !matchSingle && !matchMultiple) {
+            return false;
+          }
+        }
       }
 
       // 2. Lọc Danh mục Cấp 1
@@ -712,14 +951,15 @@ export default function ResourceManagementPage() {
         if (docYear !== selectedYear) return false;
       }
 
-      // 5. Lọc Trạng thái hiệu lực
+      // 5. Lọc Trạng thái hiệu lực theo Hiệu lực thực tế (Dynamic Validity)
       if (statusFilter !== 'all') {
-        if (doc.hieu_luc !== statusFilter) return false;
+        const effectiveStatus = computeEffectiveStatus(doc.hieu_luc, doc.ngay_het_hieu_luc, doc.link_thay_the).status;
+        if (effectiveStatus !== statusFilter) return false;
       }
 
       return true;
     });
-  }, [documents, searchTerm, selectedCategory, selectedType, selectedYear, statusFilter]);
+  }, [documents, searchTerm, searchField, selectedCategory, selectedType, selectedYear, statusFilter]);
 
   // Phân trang danh sách
   const totalCount = filteredDocuments.length;
@@ -737,6 +977,10 @@ export default function ResourceManagementPage() {
 
   // Hành động Mở Modal Thêm mới
   const handleAddNew = () => {
+    if (!isAdmin) {
+      showToast(t('resourceManagement.adminOnlyAddDocument'), 'warning');
+      return;
+    }
     if (categories.length === 0) {
       // Mở trực tiếp màn Quản lý thư mục để người dùng tạo thư mục trước, không hiện toast cảnh báo gây spam
       setToast(null);
@@ -771,7 +1015,7 @@ export default function ResourceManagementPage() {
         console.warn('Lỗi khi xóa tài liệu trên backend:', e);
       });
 
-      // Xóa khỏi danh sách tài liệu
+      // Xóa khỏi danh sách tài liệu (instant UI feedback)
       const targetId = deleteItem.id;
       const targetTitle = deleteItem.tieu_de;
       setDocuments((prev) => prev.filter((d) => d.id !== targetId));
@@ -789,6 +1033,10 @@ export default function ResourceManagementPage() {
       if (currentPage > newTotalPages) {
         setCurrentPage(newTotalPages);
       }
+
+      // Đồng bộ ngầm với server và thông báo cho các tab/client khác
+      await fetchResources(true, true);
+      notifyMutation();
     } finally {
       setIsDeleting(false);
     }
@@ -824,9 +1072,11 @@ export default function ResourceManagementPage() {
               : selectedTypeNames,
         };
 
+        // Cập nhật local state ngay lập tức (instant UI feedback)
         setDocuments((prev) =>
           prev.map((d) => (d.id === formInitialData.id ? savedDoc : d))
         );
+        setDetailItem((prev) => (prev && prev.id === savedDoc.id ? savedDoc : prev));
         setIsFormOpen(false);
         showToast(`Đã cập nhật thành công tài liệu: "${savedDoc.tieu_de}"`, 'success', 'Cập nhật tài liệu');
       } else {
@@ -845,10 +1095,14 @@ export default function ResourceManagementPage() {
               : selectedTypeNames,
         };
 
+        // Cập nhật local state ngay lập tức (instant UI feedback)
         setDocuments((prev) => [savedDoc, ...prev]);
         setIsFormOpen(false);
         showToast(`Đã thêm mới thành công tài liệu: "${savedDoc.tieu_de}"`, 'success', 'Thêm mới tài liệu');
       }
+      // Đồng bộ ngầm với server sau khi cập nhật local state và thông báo cho các tab/client khác
+      await fetchResources(true, true);
+      notifyMutation();
     } catch (error) {
       console.error('Lỗi khi lưu tài liệu lên server:', error);
       showToast('Không thể lưu tài liệu lên hệ thống máy chủ', 'danger', 'Lỗi lưu trữ');
@@ -874,6 +1128,7 @@ export default function ResourceManagementPage() {
           ghi_chu: category.ghi_chu || '',
         };
         const updated = await apiClient.put<ResourceCategory>(`/api/resources/categories/${category.id}/`, payload);
+        // Cập nhật local state ngay lập tức (instant UI feedback)
         setCategories((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
         setDocuments((prev) =>
           prev.map((d) =>
@@ -890,8 +1145,9 @@ export default function ResourceManagementPage() {
           ghi_chu: category.ghi_chu || '',
         };
         const savedCat = await apiClient.post<ResourceCategory>('/api/resources/categories/', payload);
-        setCategories((prev) => [...prev, savedCat]);
-        setVisibleCategoryIds((prev) => [...prev, savedCat.id]);
+        // Cập nhật local state ngay lập tức (instant UI feedback)
+        setCategories((prev) => [...prev.filter((c) => c.id !== savedCat.id), savedCat]);
+        setVisibleCategoryIds((prev) => (prev.includes(savedCat.id) ? prev : [...prev, savedCat.id]));
 
         // Nếu có danh sách loại con khởi tạo kèm theo:
         if (childTypes && childTypes.length > 0) {
@@ -913,17 +1169,24 @@ export default function ResourceManagementPage() {
             }
           }
           if (createdTypes.length > 0) {
-            setTypes((prev) => [...prev, ...createdTypes]);
-            setVisibleTypeIds((prev) => [...prev, ...createdTypes.map((ct) => ct.id)]);
+            setTypes((prev) => [...prev.filter((t) => !createdTypes.some((ct) => ct.id === t.id)), ...createdTypes]);
+            setVisibleTypeIds((prev) => [
+              ...prev,
+              ...createdTypes.map((ct) => ct.id).filter((id) => !prev.includes(id)),
+            ]);
           }
         }
 
         const extraMsg = childCount && childCount > 0 ? ` (kèm ${childCount} loại con)` : '';
         showToast(`Đã thêm mới thành công thư mục: "${savedCat.ten_tai_lieu}"${extraMsg}`, 'success', 'Thêm mới Thư mục');
       }
+      // Đồng bộ ngầm với server sau khi cập nhật local state và thông báo cho các tab/client khác
+      await fetchResources(true, true);
+      notifyMutation();
     } catch (e) {
       console.error('Lỗi khi lưu thư mục lên máy chủ:', e);
       showToast('Không thể lưu thư mục lên hệ thống máy chủ', 'danger', 'Lỗi lưu trữ');
+      throw e;
     }
   };
 
@@ -931,6 +1194,7 @@ export default function ResourceManagementPage() {
     const cat = categories.find((c) => c.id === id);
     try {
       await apiClient.delete(`/api/resources/categories/${id}/`);
+      // Cập nhật local state ngay lập tức (instant UI feedback)
       setCategories((prev) => prev.filter((c) => c.id !== id));
       setVisibleCategoryIds((prev) => prev.filter((cid) => cid !== id));
       setTypes((prev) => prev.filter((t) => t.dm_tai_lieu !== id));
@@ -939,9 +1203,13 @@ export default function ResourceManagementPage() {
       if (selectedCategory === String(id)) {
         setSelectedCategory('all');
       }
+      // Đồng bộ ngầm với server và thông báo cho các tab/client khác
+      await fetchResources(true, true);
+      notifyMutation();
     } catch (e) {
       console.error('Lỗi khi xóa danh mục trên máy chủ:', e);
       showToast('Không thể xóa thư mục trên hệ thống máy chủ', 'danger', 'Lỗi thao tác');
+      throw e;
     }
   };
 
@@ -956,6 +1224,7 @@ export default function ResourceManagementPage() {
           ghi_chu: typeItem.ghi_chu || '',
         };
         const updated = await apiClient.put<ResourceType>(`/api/resources/types/${typeItem.id}/`, payload);
+        // Cập nhật local state ngay lập tức (instant UI feedback)
         setTypes((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
         setDocuments((prev) =>
           prev.map((d) => {
@@ -980,15 +1249,20 @@ export default function ResourceManagementPage() {
           ghi_chu: typeItem.ghi_chu || '',
         };
         const saved = await apiClient.post<ResourceType>('/api/resources/types/', payload);
-        setTypes((prev) => [...prev, saved]);
-        setVisibleTypeIds((prev) => [...prev, saved.id]);
+        // Cập nhật local state ngay lập tức (instant UI feedback)
+        setTypes((prev) => [...prev.filter((t) => t.id !== saved.id), saved]);
+        setVisibleTypeIds((prev) => (prev.includes(saved.id) ? prev : [...prev, saved.id]));
         if (!silent) {
           showToast(`Đã thêm mới thành công loại tài liệu: "${saved.ten_loai}"`, 'success', 'Thêm mới Loại tài liệu');
         }
       }
+      // Đồng bộ ngầm với server sau khi cập nhật local state và thông báo cho các tab/client khác
+      await fetchResources(true, true);
+      notifyMutation();
     } catch (e) {
       console.error('Lỗi khi lưu loại tài liệu lên máy chủ:', e);
       showToast('Không thể lưu loại tài liệu lên hệ thống máy chủ', 'danger', 'Lỗi lưu trữ');
+      throw e;
     }
   };
 
@@ -996,6 +1270,7 @@ export default function ResourceManagementPage() {
     const typeItem = types.find((t) => t.id === id);
     try {
       await apiClient.delete(`/api/resources/types/${id}/`);
+      // Cập nhật local state ngay lập tức (instant UI feedback)
       setTypes((prev) => prev.filter((t) => t.id !== id));
       setVisibleTypeIds((prev) => prev.filter((tid) => tid !== id));
       setDocuments((prev) =>
@@ -1011,9 +1286,13 @@ export default function ResourceManagementPage() {
       if (selectedType === String(id)) {
         setSelectedType('all');
       }
+      // Đồng bộ ngầm với server và thông báo cho các tab/client khác
+      await fetchResources(true, true);
+      notifyMutation();
     } catch (e) {
       console.error('Lỗi khi xóa loại tài liệu trên máy chủ:', e);
       showToast('Không thể xóa loại tài liệu trên hệ thống máy chủ', 'danger', 'Lỗi thao tác');
+      throw e;
     }
   };
 
@@ -1031,6 +1310,7 @@ export default function ResourceManagementPage() {
       if (selectedType !== 'all') params.append('loai_tai_lieu', selectedType);
       if (selectedYear !== 'all') params.append('nam', selectedYear);
       if (statusFilter !== 'all') params.append('hieu_luc', statusFilter);
+      if (currentLang === 'en') params.append('lang', 'en');
 
       const baseUrl = import.meta.env.VITE_API_URL || '';
       const endpoint = `/api/resources/documents/export-excel/?${params.toString()}`;
@@ -1049,11 +1329,19 @@ export default function ResourceManagementPage() {
         const downloadUrl = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = downloadUrl;
-        a.download = `Danh_sach_tai_lieu_${new Date().toISOString().split('T')[0]}.xlsx`;
+        const filePrefix = currentLang === 'en' ? 'Document_List' : 'Danh_sach_tai_lieu';
+        a.download = `${filePrefix}_${new Date().toISOString().split('T')[0]}.xlsx`;
         document.body.appendChild(a);
         a.click();
         a.remove();
         window.URL.revokeObjectURL(downloadUrl);
+        showToast(
+          currentLang === 'en'
+            ? 'Document list exported successfully to Excel file!'
+            : 'Đã xuất thành công danh sách tài liệu sang tệp Excel!',
+          'success',
+          currentLang === 'en' ? 'Export Excel' : 'Xuất dữ liệu Excel'
+        );
       } else {
         throw new Error(`Máy chủ phản hồi mã lỗi ${response.status}`);
       }
@@ -1064,17 +1352,9 @@ export default function ResourceManagementPage() {
       );
 
       // Fallback: Xuất dữ liệu bảng hiện tại sang file CSV/Excel UTF-8 có BOM để mở tiếng Việt không lỗi
-      const headers = [
-        'STT',
-        'Ký hiệu',
-        'Tiêu đề',
-        'Danh mục',
-        'Loại tài liệu',
-        'Nơi ban hành',
-        'Ngày đăng',
-        'Hiệu lực',
-        'Phạm vi',
-      ];
+      const headers = currentLang === 'en'
+        ? ['No.', 'Code', 'Title', 'Category', 'Document Type', 'Issuing Authority', 'Published Date', 'Status', 'Scope']
+        : ['STT', 'Ký hiệu', 'Tiêu đề', 'Danh mục', 'Loại tài liệu', 'Nơi ban hành', 'Ngày đăng', 'Hiệu lực', 'Phạm vi'];
       const rows = filteredDocuments.map((doc, idx) => [
         idx + 1,
         `"${doc.ky_hieu || ''}"`,
@@ -1084,13 +1364,15 @@ export default function ResourceManagementPage() {
         `"${doc.noi_ban_hanh || ''}"`,
         doc.ngay_dang,
         doc.hieu_luc === 'CON_HIEU_LUC'
-          ? 'Còn hiệu lực'
+          ? (currentLang === 'en' ? 'Active' : 'Còn hiệu lực')
           : doc.hieu_luc === 'CON_HIEU_LUC_1_PHAN'
-            ? 'Còn hiệu lực một phần'
+            ? (currentLang === 'en' ? 'Partially Active' : 'Còn hiệu lực một phần')
             : doc.hieu_luc === 'HET_HIEU_LUC'
-              ? 'Hết hiệu lực'
-              : 'Hết và thay thế',
-        doc.hien_thi === 'TAT_CA' ? 'Tất cả' : 'Nội bộ phòng ban',
+              ? (currentLang === 'en' ? 'Expired' : 'Hết hiệu lực')
+              : (currentLang === 'en' ? 'Expired & Replaced' : 'Hết và thay thế'),
+        doc.hien_thi === 'TAT_CA'
+          ? (currentLang === 'en' ? 'Public / All' : 'Tất cả')
+          : (currentLang === 'en' ? 'Internal department' : 'Nội bộ phòng ban'),
       ]);
 
       const csvContent =
@@ -1099,12 +1381,19 @@ export default function ResourceManagementPage() {
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = downloadUrl;
-      a.download = `Danh_sach_tai_lieu_${new Date().toISOString().split('T')[0]}.csv`;
+      const filePrefix = currentLang === 'en' ? 'Document_List' : 'Danh_sach_tai_lieu';
+      a.download = `${filePrefix}_${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(downloadUrl);
-      showToast('Đã xuất thành công file danh sách tài liệu!', 'success', 'Xuất dữ liệu Excel');
+      showToast(
+        currentLang === 'en'
+          ? 'Document list exported successfully!'
+          : 'Đã xuất thành công file danh sách tài liệu!',
+        'success',
+        currentLang === 'en' ? 'Export Excel' : 'Xuất dữ liệu Excel'
+      );
     } finally {
       setIsExporting(false);
     }
@@ -1142,14 +1431,14 @@ export default function ResourceManagementPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0 w-full sm:w-auto">
           {/* Nút Cây thư mục nhiều cấp (Hierarchical Folders) */}
           <Button
             variant="secondary"
             size="md"
             icon="fa-sitemap"
             onClick={() => setIsFolderManagerOpen(true)}
-            className="h-10 px-4 rounded-xl text-xs sm:text-sm font-bold border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 shadow-2xs hover:border-primary transition-all"
+            className="h-10 px-4 rounded-xl text-xs sm:text-sm font-bold border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 shadow-2xs hover:border-primary transition-all w-full sm:w-auto justify-center"
             title={t('folders.entry.openHint')}
           >
             {t('folders.entry.open')}
@@ -1167,14 +1456,17 @@ export default function ResourceManagementPage() {
             {t('resourceManagement.categoriesBtn')}
           </Button>
 
-          {/* Nút Thêm mới tài liệu (Thao tác chính nổi bật) */}
+          {/* Nút Thêm mới tài liệu (Thao tác chính nổi bật - Chỉ Admin mới có quyền) */}
           <Button
-            variant="primary"
+            variant={isAdmin ? "primary" : "secondary"}
             size="md"
             icon="fa-plus"
-            onClick={handleAddNew}
-            className="h-9 sm:h-10 px-3.5 sm:px-4.5 rounded-xl text-xs sm:text-sm font-bold shadow-sm hover:shadow-glow transition-all flex-1 sm:flex-initial justify-center"
-            title={t('resourceManagement.addDocumentBtn')}
+            onClick={isAdmin ? handleAddNew : undefined}
+            disabled={!isAdmin}
+            className={`h-9 sm:h-10 px-3.5 sm:px-4.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex-1 sm:flex-initial justify-center ${
+              !isAdmin ? 'opacity-60 cursor-not-allowed' : 'shadow-sm hover:shadow-glow'
+            }`}
+            title={isAdmin ? t('resourceManagement.addDocumentBtn') : t('resourceManagement.adminOnlyAddDocument')}
           >
             {t('resourceManagement.addDocumentBtn')}
           </Button>
@@ -1187,7 +1479,7 @@ export default function ResourceManagementPage() {
         {(() => {
           const hasBottomRow = Boolean(selectedCategory !== 'all' && availableTypesForFilter.length > 0);
           const selectedCatObj = categories.find((c) => String(c.id) === selectedCategory);
-          const selectedCatTitle = selectedCatObj ? selectedCatObj.ten_tai_lieu : 'Danh mục';
+          const selectedCatTitle = selectedCatObj ? selectedCatObj.ten_tai_lieu : t('resourceManagement.categoriesBtn');
 
           return (
             <div className={`relative z-20 flex items-stretch h-10 sm:h-11 ${hasBottomRow ? 'border-b border-border-subtle' : ''}`}>
@@ -1212,7 +1504,7 @@ export default function ResourceManagementPage() {
                       <i className={`fa-solid fa-layer-group text-xs ${isAll ? 'text-primary' : 'text-muted'}`} />
                       <span>{t('resourceManagement.all')}</span>
                       <span
-                        className={`px-1.5 py-0.5 text-[10px] sm:text-[11px] rounded-full font-bold ${
+                        className={`min-w-[20px] h-5 px-1.5 inline-flex items-center justify-center text-[11px] rounded-full font-bold leading-none shrink-0 ${
                           isAll
                             ? 'bg-primary text-white'
                             : 'bg-surface-elevated text-secondary border border-border-subtle'
@@ -1240,7 +1532,7 @@ export default function ResourceManagementPage() {
                       key={cat.id}
                       type="button"
                       onClick={() => handleCategorySelect(String(cat.id))}
-                      className={`flex items-center gap-1.5 px-3 sm:px-3.5 h-full text-xs sm:text-[13px] font-semibold whitespace-nowrap border-b-2 transition-all cursor-pointer shrink-0 ${
+                      className={`relative flex items-center gap-1.5 px-3 sm:px-3.5 h-full text-xs sm:text-[13px] font-semibold whitespace-nowrap border-b-2 transition-all cursor-pointer shrink-0 ${
                         isSelected
                           ? 'border-primary text-primary bg-primary/5 font-bold'
                           : 'border-transparent text-secondary hover:text-main hover:bg-surface-elevated/60'
@@ -1251,7 +1543,7 @@ export default function ResourceManagementPage() {
                       <i className={`fa-solid ${isSelected ? 'fa-folder-open text-primary' : 'fa-folder text-muted'} text-xs`} />
                       <span>{cat.ten_tai_lieu}</span>
                       <span
-                        className={`px-1.5 py-0.5 text-[10px] sm:text-[11px] rounded-full font-bold ${
+                        className={`min-w-[20px] h-5 px-1.5 inline-flex items-center justify-center text-[11px] rounded-full font-bold leading-none shrink-0 ${
                           isSelected
                             ? 'bg-primary text-white'
                             : 'bg-surface-elevated text-muted border border-border-subtle'
@@ -1264,7 +1556,7 @@ export default function ResourceManagementPage() {
                 })}
                 {orderedVisibleCategories.length === 0 && (
                   <div className="flex items-center px-4 text-xs text-muted italic">
-                    Chưa có danh mục nào được tick hiển thị. Bấm "Danh mục" ở góc phải để chọn.
+                    {t('resourceManagement.noCategoriesVisibleHint')}
                   </div>
                 )}
               </div>
@@ -1289,13 +1581,13 @@ export default function ResourceManagementPage() {
                       ? 'border-b-2 border-primary text-primary bg-primary/5 font-bold sm:border-transparent sm:text-secondary sm:bg-transparent'
                       : 'text-secondary hover:text-primary hover:bg-surface-elevated/70'
                   }`}
-                  title="Mở danh sách tất cả Danh mục"
-                  aria-label="Danh sách tất cả Danh mục"
+                  title={t('resourceManagement.openAllCategoriesTooltip')}
+                  aria-label={t('resourceManagement.openAllCategoriesTooltip')}
                 >
                   <i className="fa-solid fa-folder-tree text-xs text-primary shrink-0" />
                   <span className="truncate max-w-[110px] sm:max-w-none">
                     <span className="sm:hidden">{selectedCatTitle}</span>
-                    <span className="hidden sm:inline">Danh mục</span>
+                    <span className="hidden sm:inline">{t('resourceManagement.categoriesBtn')}</span>
                   </span>
                   <i
                     className={`fa-solid fa-chevron-down text-[10px] sm:text-[11px] transition-transform duration-200 shrink-0 ${
@@ -1305,15 +1597,15 @@ export default function ResourceManagementPage() {
                 </button>
 
                 {isCategoryDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1.5 w-[calc(100vw-32px)] max-w-sm sm:w-96 bg-surface rounded-xl border border-border-subtle shadow-2xl z-50 p-2.5 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="absolute right-0 top-full mt-1.5 w-[calc(100vw-24px)] max-w-[360px] sm:w-96 bg-surface rounded-xl border border-border-subtle shadow-2xl z-50 p-2.5 animate-in fade-in zoom-in-95 duration-100 overflow-hidden">
                     <div className="px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-muted flex items-center justify-between">
-                      <span>Danh mục tài liệu</span>
-                      <span className="text-[10px] text-primary lowercase font-medium">Cấp 1</span>
+                      <span>{t('resourceManagement.dropdownCategoriesTitle')}</span>
+                      <span className="text-[10px] text-primary lowercase font-medium">{t('resourceManagement.level1')}</span>
                     </div>
 
                     {/* Dòng hướng dẫn tick chọn: chỉ hiện trên sm:flex, ẩn trên mobile (hidden sm:flex) */}
                     <div className="hidden sm:flex px-2 pb-1.5 text-[11px] text-secondary items-center justify-between border-b border-border-subtle mb-1.5">
-                      <span className="text-[10px] text-muted">Tick chọn để hiện ra thanh chính:</span>
+                      <span className="text-[10px] text-muted">{t('resourceManagement.tickToDisplayOnMainBar')}</span>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1322,7 +1614,7 @@ export default function ResourceManagementPage() {
                         }}
                         className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
                       >
-                        {visibleCategoryIds.length === categories.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                        {visibleCategoryIds.length === categories.length ? t('resourceManagement.deselectAll') : t('resourceManagement.selectAll')}
                       </button>
                     </div>
 
@@ -1344,7 +1636,7 @@ export default function ResourceManagementPage() {
                         <span className="truncate">{t('resourceManagement.allFolders')}</span>
                       </span>
                       <span
-                        className={`text-[11px] px-1.5 py-0.2 rounded-full font-bold ${
+                        className={`min-w-[20px] h-5 px-1.5 inline-flex items-center justify-center text-[11px] rounded-full font-bold leading-none shrink-0 ${
                           selectedCategory === 'all'
                             ? 'bg-white/20 text-white'
                             : 'bg-surface-elevated text-secondary border border-border-subtle'
@@ -1376,7 +1668,7 @@ export default function ResourceManagementPage() {
                             {/* Checkbox: Chỉ hiện trên sm:flex, ẨN trên mobile (hidden sm:flex) */}
                             <label
                               className="hidden sm:flex items-center gap-1.5 cursor-pointer shrink-0 select-none"
-                              title={isVisibleOnBar ? `Đang hiển thị ở vị trí #${tickIndex + 1} trên thanh chính` : 'Tick chọn để hiển thị trên thanh chính'}
+                              title={isVisibleOnBar ? t('resourceManagement.displayedAtPosOnBar', { pos: tickIndex + 1 }) : t('resourceManagement.tickToDisplayTooltip')}
                               onClick={(e) => e.stopPropagation()}
                             >
                               <input
@@ -1406,7 +1698,7 @@ export default function ResourceManagementPage() {
                               <span className="truncate">{cat.ten_tai_lieu}</span>
                             </button>
                             <span
-                              className={`text-[11px] px-1.5 py-0.2 rounded-full font-bold shrink-0 ${
+                              className={`min-w-[20px] h-5 px-1.5 inline-flex items-center justify-center text-[11px] rounded-full font-bold leading-none shrink-0 ${
                                 isSelected
                                   ? 'bg-primary text-white'
                                   : 'bg-surface-elevated text-secondary border border-border-subtle'
@@ -1428,11 +1720,11 @@ export default function ResourceManagementPage() {
                         setIsCategoryDropdownOpen(false);
                       }}
                       className="w-full px-2.5 py-2 rounded-lg text-left text-xs font-semibold text-primary hover:bg-primary/5 flex items-center justify-between transition-colors cursor-pointer border border-primary/20 hover:border-primary/40 bg-primary/2"
-                      title="Mở bảng cấu hình Quản lý Danh mục & Loại tài liệu"
+                      title={t('resourceManagement.openCategoryManagementTooltip')}
                     >
                       <span className="flex items-center gap-2 truncate">
                         <i className="fa-solid fa-folder-tree text-xs text-primary" />
-                        <span className="truncate">Cài đặt &amp; Quản lý danh mục</span>
+                        <span className="truncate">{t('resourceManagement.manageCategoriesSettings')}</span>
                       </span>
                       <i className="fa-solid fa-arrow-up-right-from-square text-[10px] text-primary/70 shrink-0" />
                     </button>
@@ -1446,7 +1738,7 @@ export default function ResourceManagementPage() {
         {/* Hàng Cấp 2 — Sub-chips & Dropdown Loại tài liệu */}
         {selectedCategory !== 'all' && availableTypesForFilter.length > 0 && (() => {
           const selectedTypeObj = availableTypesForFilter.find((t) => String(t.id) === selectedType);
-          const selectedTypeTitle = selectedTypeObj ? selectedTypeObj.ten_loai : 'Loại tài liệu';
+          const selectedTypeTitle = selectedTypeObj ? selectedTypeObj.ten_loai : t('resourceManagement.dropdownTypesTitle');
           const categoryDocCount = documents.filter((d) => d.dm_tai_lieu === Number(selectedCategory)).length;
 
           return (
@@ -1467,11 +1759,11 @@ export default function ResourceManagementPage() {
                       ? 'border-b-2 border-primary text-primary bg-primary/5 font-bold'
                       : 'border-b-2 border-transparent text-secondary hover:text-main hover:bg-surface-elevated/60'
                   }`}
-                  title="Tất cả loại tài liệu"
+                  title={t('resourceManagement.allTypesOption')}
                 >
                   <i className={`fa-solid fa-tags text-xs ${selectedType === 'all' ? 'text-primary' : 'text-muted'}`} />
-                  <span>Loại</span>
-                  <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-bold ${
+                  <span>{t('resourceManagement.typeShort')}</span>
+                  <span className={`min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center text-[10px] rounded-full font-bold leading-none shrink-0 ${
                     selectedType === 'all'
                       ? 'bg-primary text-white'
                       : 'bg-surface-elevated text-secondary border border-border-subtle'
@@ -1505,30 +1797,30 @@ export default function ResourceManagementPage() {
                   </span>
                 </button>
 
-                {orderedVisibleTypes.map((t) => {
-                  const isActive = selectedType === String(t.id);
+                {orderedVisibleTypes.map((typeItem) => {
+                  const isActive = selectedType === String(typeItem.id);
                   const docCount = documents.filter(
                     (d) =>
                       d.dm_tai_lieu === Number(selectedCategory) &&
                       Array.isArray(d.loai_tai_lieu) &&
-                      d.loai_tai_lieu.includes(t.id)
+                      d.loai_tai_lieu.includes(typeItem.id)
                   ).length;
                   return (
                     <button
-                      key={t.id}
+                      key={typeItem.id}
                       type="button"
-                      onClick={() => { setSelectedType(String(t.id)); setCurrentPage(1); }}
-                      className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-lg text-xs sm:text-[13px] font-semibold transition-all cursor-pointer shrink-0 ${
+                      onClick={() => { setSelectedType(String(typeItem.id)); setCurrentPage(1); }}
+                      className={`relative inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-lg text-xs sm:text-[13px] font-semibold transition-all cursor-pointer shrink-0 ${
                         isActive
                           ? 'bg-primary text-white shadow-2xs font-bold'
                           : 'bg-surface text-secondary border border-border-subtle hover:border-primary/50 hover:text-primary hover:bg-surface'
                       }`}
-                      title={t.ghi_chu || t.ten_loai}
+                      title={typeItem.ghi_chu || typeItem.ten_loai}
                     >
-                      {!t.is_public && (
+                      {!typeItem.is_public && (
                         <i className="fa-solid fa-lock text-[10px] opacity-70" />
                       )}
-                      <span>{t.ten_loai}</span>
+                      <span>{typeItem.ten_loai}</span>
                       <span className={`text-[10px] sm:text-[11px] font-bold ${
                         isActive ? 'text-white/80' : 'text-muted'
                       }`}>
@@ -1539,7 +1831,7 @@ export default function ResourceManagementPage() {
                 })}
                 {orderedVisibleTypes.length === 0 && (
                   <div className="flex items-center px-2 text-xs text-muted italic">
-                    Chưa có loại tài liệu nào được tick hiển thị. Bấm "Loại tài liệu" ở góc phải để chọn.
+                    {t('resourceManagement.noTypesVisibleHint')}
                   </div>
                 )}
               </div>
@@ -1560,23 +1852,23 @@ export default function ResourceManagementPage() {
                       ? 'border-b-2 border-primary text-primary bg-primary/5 font-bold sm:border-transparent sm:text-secondary sm:bg-transparent'
                       : 'text-secondary hover:text-primary hover:bg-surface-elevated/70'
                   }`}
-                  title="Mở danh sách tất cả Loại tài liệu"
+                  title={t('resourceManagement.openAllTypesTooltip')}
                   aria-haspopup="listbox"
                   aria-expanded={isTypeDropdownOpen}
                 >
                   <i className="fa-solid fa-tags text-xs text-primary shrink-0" />
                   <span className="truncate max-w-[110px] sm:max-w-none">
                     <span className="sm:hidden">{selectedTypeTitle}</span>
-                    <span className="hidden sm:inline">Loại tài liệu</span>
+                    <span className="hidden sm:inline">{t('resourceManagement.dropdownTypesTitle')}</span>
                   </span>
                   <i className={`fa-solid fa-chevron-down text-[10px] sm:text-[11px] transition-transform duration-200 shrink-0 ${isTypeDropdownOpen ? 'rotate-180 text-primary' : ''}`} />
                 </button>
 
                 {isTypeDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1.5 w-[calc(100vw-32px)] max-w-sm sm:w-96 bg-surface rounded-xl border border-border-subtle shadow-2xl z-50 p-2.5 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="absolute right-0 top-full mt-1.5 w-[calc(100vw-24px)] max-w-[360px] sm:w-96 bg-surface rounded-xl border border-border-subtle shadow-2xl z-50 p-2.5 animate-in fade-in zoom-in-95 duration-100 overflow-hidden">
                     <div className="px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-muted flex items-center justify-between">
-                      <span>Loại tài liệu</span>
-                      <span className="text-[10px] text-primary lowercase font-medium">Cấp 2</span>
+                      <span>{t('resourceManagement.dropdownTypesTitle')}</span>
+                      <span className="text-[10px] text-primary lowercase font-medium">{t('resourceManagement.level2')}</span>
                     </div>
 
                     {/* Dòng hướng dẫn tick chọn: chỉ hiện trên sm:flex, ẩn trên mobile (hidden sm:flex) */}
@@ -1588,7 +1880,7 @@ export default function ResourceManagementPage() {
 
                       return (
                         <div className="hidden sm:flex px-2 pb-1.5 text-[11px] text-secondary items-center justify-between border-b border-border-subtle mb-1.5">
-                          <span className="text-[10px] text-muted">Tick chọn để hiện ra thanh:</span>
+                          <span className="text-[10px] text-muted">{t('resourceManagement.tickToDisplayOnBar')}</span>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1597,7 +1889,7 @@ export default function ResourceManagementPage() {
                             }}
                             className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
                           >
-                            {allCurrentSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                            {allCurrentSelected ? t('resourceManagement.deselectAll') : t('resourceManagement.selectAll')}
                           </button>
                         </div>
                       );
@@ -1618,9 +1910,9 @@ export default function ResourceManagementPage() {
                     >
                       <span className="flex items-center gap-2 truncate">
                         <i className="fa-solid fa-layer-group text-xs" />
-                        <span className="truncate">Tất cả loại tài liệu</span>
+                        <span className="truncate">{t('resourceManagement.allTypesOption')}</span>
                       </span>
-                      <span className={`text-[11px] px-1.5 py-0.2 rounded-full font-bold ${
+                      <span className={`min-w-[20px] h-5 px-1.5 inline-flex items-center justify-center text-[11px] rounded-full font-bold leading-none shrink-0 ${
                         selectedType === 'all' ? 'bg-white/20 text-white' : 'bg-surface-elevated text-secondary border border-border-subtle'
                       }`}>
                         {categoryDocCount}
@@ -1631,23 +1923,23 @@ export default function ResourceManagementPage() {
 
                     {/* Danh sách loại tài liệu kèm checkbox (ẩn checkbox trên mobile) */}
                     <div className="max-h-60 overflow-y-auto space-y-1 pr-0.5">
-                      {availableTypesForFilter.map((t) => {
-                        const isSelected = selectedType === String(t.id);
+                      {availableTypesForFilter.map((typeItem) => {
+                        const isSelected = selectedType === String(typeItem.id);
                         const currentScopeTypeIds = availableTypesForFilter.map((item) => item.id);
                         const activeInScope = visibleTypeIds.filter((id) => currentScopeTypeIds.includes(id));
-                        const tickIndex = activeInScope.indexOf(t.id);
+                        const tickIndex = activeInScope.indexOf(typeItem.id);
                         const isVisibleOnBar = tickIndex !== -1;
                         const docCount = documents.filter(
                           (d) =>
                             d.dm_tai_lieu === Number(selectedCategory) &&
                             Array.isArray(d.loai_tai_lieu) &&
-                            d.loai_tai_lieu.includes(t.id)
+                            d.loai_tai_lieu.includes(typeItem.id)
                         ).length;
 
                         return (
                           <div
-                            key={t.id}
-                            className={`w-full px-2 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 transition-colors ${
+                            key={typeItem.id}
+                            className={`relative w-full px-2 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 transition-colors ${
                               isSelected
                                 ? 'bg-primary/10 border border-primary/20 text-primary font-bold'
                                 : 'text-main hover:bg-surface-elevated'
@@ -1656,13 +1948,13 @@ export default function ResourceManagementPage() {
                             {/* Checkbox: Chỉ hiện trên sm:flex, ẨN trên mobile (hidden sm:flex) */}
                             <label
                               className="hidden sm:flex items-center gap-1.5 cursor-pointer shrink-0 select-none"
-                              title={isVisibleOnBar ? `Đang hiển thị ở vị trí #${tickIndex + 1} trên thanh` : 'Tick chọn để hiển thị trên thanh'}
+                              title={isVisibleOnBar ? t('resourceManagement.displayedAtPosOnSubBar', { pos: tickIndex + 1 }) : t('resourceManagement.tickToDisplayOnBarTooltip')}
                               onClick={(e) => e.stopPropagation()}
                             >
                               <input
                                 type="checkbox"
                                 checked={isVisibleOnBar}
-                                onChange={() => toggleTypeVisibility(t.id)}
+                                onChange={() => toggleTypeVisibility(typeItem.id)}
                                 className="w-4 h-4 rounded border-border-subtle text-primary focus:ring-primary/20 cursor-pointer accent-primary"
                               />
                               {isVisibleOnBar && (
@@ -1675,22 +1967,22 @@ export default function ResourceManagementPage() {
                             <button
                               type="button"
                               onClick={() => {
-                                setSelectedType(String(t.id));
+                                setSelectedType(String(typeItem.id));
                                 setCurrentPage(1);
                                 setIsTypeDropdownOpen(false);
                               }}
                               className="flex items-center gap-2 truncate flex-1 text-left cursor-pointer hover:text-primary transition-colors py-0.5"
-                              title={t.ghi_chu || t.ten_loai}
+                              title={typeItem.ghi_chu || typeItem.ten_loai}
                             >
-                              {!t.is_public ? (
+                              {!typeItem.is_public ? (
                                 <i className="fa-solid fa-lock text-[10px] opacity-70 shrink-0" />
                               ) : (
                                 <i className="fa-solid fa-tag text-xs opacity-70 shrink-0" />
                               )}
-                              <span className="truncate">{t.ten_loai}</span>
+                              <span className="truncate">{typeItem.ten_loai}</span>
                             </button>
 
-                            <span className={`text-[11px] px-1.5 py-0.2 rounded-full font-bold shrink-0 ${
+                            <span className={`min-w-[20px] h-5 px-1.5 inline-flex items-center justify-center text-[11px] rounded-full font-bold leading-none shrink-0 ${
                               isSelected ? 'bg-primary text-white' : 'bg-surface-elevated text-secondary border border-border-subtle'
                             }`}>
                               {docCount}
@@ -1709,11 +2001,11 @@ export default function ResourceManagementPage() {
                         setIsTypeDropdownOpen(false);
                       }}
                       className="w-full px-2.5 py-2 rounded-lg text-left text-xs font-semibold text-primary hover:bg-primary/5 flex items-center justify-between transition-colors cursor-pointer border border-primary/20 hover:border-primary/40 bg-primary/2"
-                      title="Mở bảng cấu hình Quản lý Danh mục & Loại tài liệu"
+                      title={t('resourceManagement.openCategoryManagementTooltip')}
                     >
                       <span className="flex items-center gap-2 truncate">
                         <i className="fa-solid fa-folder-tree text-xs text-primary" />
-                        <span className="truncate">Cài đặt &amp; Quản lý danh mục</span>
+                        <span className="truncate">{t('resourceManagement.manageCategoriesSettings')}</span>
                       </span>
                       <i className="fa-solid fa-arrow-up-right-from-square text-[10px] text-primary/70 shrink-0" />
                     </button>
@@ -1729,8 +2021,15 @@ export default function ResourceManagementPage() {
           <div className="px-4 py-2.5 flex items-center gap-2 bg-primary/3 rounded-b-xl border-t border-border-subtle">
             <i className="fa-solid fa-circle-info text-primary text-[11px] shrink-0" />
             <span className="text-[11px] text-secondary">
-              Đang xem toàn bộ <strong className="text-main font-bold">{documents.length} tài liệu</strong> trong kho.
-              Chọn một <strong className="text-primary">Thư mục</strong> ở trên để lọc theo phòng ban và xem các <strong className="text-primary">Loại tài liệu</strong> con.
+              {t('resourceManagement.bannerViewingPart1')}{' '}
+              <strong className="text-main font-bold">
+                {documents.length} {t('resourceManagement.bannerDocsUnit')}
+              </strong>{' '}
+              {t('resourceManagement.bannerViewingPart2')}{' '}
+              <strong className="text-primary">{t('resourceManagement.fieldFolder')}</strong>{' '}
+              {t('resourceManagement.bannerViewingPart3')}{' '}
+              <strong className="text-primary">{t('resourceManagement.dropdownTypesTitle')}</strong>
+              {t('resourceManagement.bannerViewingPart4') ? ` ${t('resourceManagement.bannerViewingPart4')}` : '.'}
             </span>
           </div>
         )}
@@ -1740,32 +2039,98 @@ export default function ResourceManagementPage() {
       {/* 2. THANH BỘ LỌC TÌM KIẾM (MỤC 3) */}
       <div className="bg-surface p-3 sm:p-3.5 rounded-xl border border-border-subtle shadow-xs space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-2.5 items-center">
-          {/* Ô Tìm kiếm rộng rãi: chiếm 12 cols trên mobile, 6 cols trên tablet, 8 cols trên màn lớn */}
-          <div className="sm:col-span-2 md:col-span-6 lg:col-span-7 xl:col-span-8 relative">
-            <i className="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-xs pointer-events-none" />
-            <input
-              type="text"
-              placeholder={t('resourceManagement.searchPlaceholder')}
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full h-10 pl-9 pr-8 text-[13px] rounded-lg bg-surface-elevated text-main border border-border-subtle focus:outline-hidden focus:border-primary placeholder:text-muted transition-colors"
-              aria-label="Tìm theo tiêu đề, ký hiệu, nơi ban hành"
-            />
-            {searchInput && (
+          {/* Ô Tìm kiếm cụ thể & dễ hiểu: Dropdown tiêu chí + Ô nhập từ khóa */}
+          <div className="sm:col-span-2 md:col-span-6 lg:col-span-7 xl:col-span-8 flex items-stretch">
+            {/* Dropdown chọn tiêu chí tìm kiếm cụ thể (Tất cả, Tiêu đề, Ký hiệu, Nơi ban hành, Người tạo, Tệp đính kèm) */}
+            <div className="relative shrink-0" ref={searchFieldDropdownRef}>
               <button
                 type="button"
                 onClick={() => {
-                  setSearchInput('');
-                  setSearchTerm('');
-                  setCurrentPage(1);
+                  setIsSearchFieldDropdownOpen((prev) => !prev);
+                  setIsYearDropdownOpen(false);
+                  setIsStatusDropdownOpen(false);
+                  setIsCategoryDropdownOpen(false);
+                  setIsTypeDropdownOpen(false);
                 }}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-main text-xs p-1 cursor-pointer"
-                title="Xóa từ khóa"
-                aria-label="Xóa từ khóa tìm kiếm"
+                className={`h-10 px-2.5 sm:px-3 text-xs sm:text-[13px] font-semibold bg-surface-elevated hover:bg-surface border border-r-0 rounded-l-lg text-secondary hover:text-primary flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
+                  isSearchFieldDropdownOpen
+                    ? 'border-primary ring-1 ring-primary/20 text-primary'
+                    : 'border-border-subtle'
+                }`}
+                title={t('resourceManagement.selectSearchScope')}
+                aria-label={t('resourceManagement.selectSearchScope')}
+                aria-haspopup="listbox"
+                aria-expanded={isSearchFieldDropdownOpen}
               >
-                <i className="fa-solid fa-xmark" />
+                <i className={`${SEARCH_FIELD_OPTIONS.find((o) => o.value === searchField)?.icon || 'fa-solid fa-layer-group'} text-xs text-primary`} />
+                <span className="hidden sm:inline font-medium text-main text-xs">
+                  {t(`resourceManagement.${SEARCH_FIELD_OPTIONS.find((o) => o.value === searchField)?.labelKey || 'searchScopeAll'}`)}
+                </span>
+                <i className={`fa-solid fa-chevron-down text-[10px] text-muted transition-transform duration-200 ${isSearchFieldDropdownOpen ? 'rotate-180 text-primary' : ''}`} />
               </button>
-            )}
+
+              {isSearchFieldDropdownOpen && (
+                <div className="absolute left-0 top-full mt-1.5 w-56 bg-surface rounded-xl border border-border-subtle shadow-xl p-1 z-50 animate-in fade-in zoom-in-95 duration-100 overflow-hidden">
+                  <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-muted">
+                    {t('resourceManagement.searchFieldLabel')}
+                  </div>
+                  {SEARCH_FIELD_OPTIONS.map((opt) => {
+                    const isSelected = searchField === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setSearchField(opt.value);
+                          setIsSearchFieldDropdownOpen(false);
+                          setCurrentPage(1);
+                        }}
+                        className={`w-full px-2.5 py-2 rounded-lg text-left text-xs font-medium flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-primary/10 text-primary font-bold'
+                            : 'text-main hover:bg-surface-elevated'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <i className={`${opt.icon} text-xs ${isSelected ? 'text-primary' : 'text-muted'}`} />
+                          <span className="truncate">{t(`resourceManagement.${opt.labelKey}`)}</span>
+                        </span>
+                        {isSelected && (
+                          <i className="fa-solid fa-check text-primary text-xs shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Ô nhập từ khóa tìm kiếm theo ngữ cảnh */}
+            <div className="relative flex-1 min-w-0">
+              <input
+                type="text"
+                placeholder={t(`resourceManagement.${SEARCH_FIELD_OPTIONS.find((o) => o.value === searchField)?.placeholderKey || 'searchPlaceholderAll'}`)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="w-full h-10 pl-3.5 pr-8 text-[13px] rounded-r-lg bg-surface-elevated text-main border border-border-subtle focus:outline-hidden focus:border-primary placeholder:text-muted transition-colors"
+                aria-label={t(`resourceManagement.${SEARCH_FIELD_OPTIONS.find((o) => o.value === searchField)?.placeholderKey || 'searchPlaceholderAll'}`)}
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchInput('');
+                    setSearchTerm('');
+                    setCurrentPage(1);
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-main text-xs p-1 cursor-pointer"
+                  title={t('resourceManagement.clearSearch')}
+                  aria-label={t('resourceManagement.clearSearch')}
+                >
+                  <i className="fa-solid fa-xmark" />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Custom Dropdown Năm ban hành - chiếm 1 col trên sm, 3 cols trên tablet (đủ chỗ không bị cắt chữ 'Tất cả năm'), 2 cols trên xl */}
@@ -1781,7 +2146,7 @@ export default function ResourceManagementPage() {
               className={`w-full h-10 px-3 text-[13px] rounded-lg bg-surface-elevated text-main border transition-colors flex items-center justify-between gap-2 cursor-pointer font-medium ${
                 isYearDropdownOpen ? 'border-primary ring-1 ring-primary/20' : 'border-border-subtle hover:border-primary/50'
               }`}
-              aria-label="Lọc theo năm ban hành"
+              aria-label={t('resourceManagement.filterByYearAria')}
               aria-haspopup="listbox"
               aria-expanded={isYearDropdownOpen}
             >
@@ -1797,7 +2162,7 @@ export default function ResourceManagementPage() {
             </button>
 
             {isYearDropdownOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-full min-w-[170px] bg-surface rounded-xl border border-border-subtle shadow-xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute left-0 right-0 sm:left-auto sm:right-0 top-full mt-1.5 w-full sm:w-56 max-w-full bg-surface rounded-xl border border-border-subtle shadow-xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 overflow-hidden">
                 <button
                   type="button"
                   onClick={() => {
@@ -1865,7 +2230,7 @@ export default function ResourceManagementPage() {
               className={`w-full h-10 px-3 text-[13px] rounded-lg bg-surface-elevated text-main border transition-colors flex items-center justify-between gap-2 cursor-pointer font-medium ${
                 isStatusDropdownOpen ? 'border-primary ring-1 ring-primary/20' : 'border-border-subtle hover:border-primary/50'
               }`}
-              aria-label="Lọc theo tình trạng hiệu lực"
+              aria-label={t('resourceManagement.filterByStatusAria')}
               aria-haspopup="listbox"
               aria-expanded={isStatusDropdownOpen}
             >
@@ -1901,7 +2266,7 @@ export default function ResourceManagementPage() {
             </button>
 
             {isStatusDropdownOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-full min-w-[220px] bg-surface rounded-xl border border-border-subtle shadow-xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute left-0 right-0 sm:left-auto sm:right-0 top-full mt-1.5 w-full sm:w-60 max-w-full bg-surface rounded-xl border border-border-subtle shadow-xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 overflow-hidden">
                 {[
                   {
                     value: 'all',
@@ -1974,7 +2339,14 @@ export default function ResourceManagementPage() {
               <span className="text-muted font-medium mr-0.5">{t('resourceManagement.filteringBadge')}</span>
               {searchTerm && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-elevated border border-border-subtle text-main font-medium">
-                  <span>Tìm: "{searchTerm}"</span>
+                  <span>
+                    {searchField === 'all'
+                      ? t('resourceManagement.filterBadgeSearch', { query: searchTerm })
+                      : t('resourceManagement.filterBadgeSearchWithScope', {
+                          scope: t(`resourceManagement.${SEARCH_FIELD_OPTIONS.find((o) => o.value === searchField)?.labelKey || 'searchScopeAll'}`),
+                          query: searchTerm,
+                        })}
+                  </span>
                   <button
                     type="button"
                     onClick={() => {
@@ -1982,7 +2354,21 @@ export default function ResourceManagementPage() {
                       setSearchTerm('');
                     }}
                     className="text-muted hover:text-danger cursor-pointer"
-                    aria-label="Xóa bộ lọc tìm kiếm"
+                    aria-label={t('resourceManagement.clearSearchFilterAria')}
+                  >
+                    <i className="fa-solid fa-xmark text-[11px]" />
+                  </button>
+                </span>
+              )}
+              {searchField !== 'all' && !searchTerm && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-elevated border border-border-subtle text-main font-medium">
+                  <span>
+                    {t('resourceManagement.searchFieldLabel')}: {t(`resourceManagement.${SEARCH_FIELD_OPTIONS.find((o) => o.value === searchField)?.labelKey || 'searchScopeAll'}`)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSearchField('all')}
+                    className="text-muted hover:text-danger cursor-pointer"
                   >
                     <i className="fa-solid fa-xmark text-[11px]" />
                   </button>
@@ -1990,12 +2376,12 @@ export default function ResourceManagementPage() {
               )}
               {selectedType !== 'all' && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-elevated border border-border-subtle text-main font-medium">
-                  <span>Loại: {types.find((t) => t.id === Number(selectedType))?.ten_loai}</span>
+                  <span>{t('resourceManagement.filterBadgeType', { type: types.find((t) => t.id === Number(selectedType))?.ten_loai || '' })}</span>
                   <button
                     type="button"
                     onClick={() => setSelectedType('all')}
                     className="text-muted hover:text-danger cursor-pointer"
-                    aria-label="Xóa bộ lọc loại tài liệu"
+                    aria-label={t('resourceManagement.clearTypeFilterAria')}
                   >
                     <i className="fa-solid fa-xmark text-[11px]" />
                   </button>
@@ -2003,12 +2389,12 @@ export default function ResourceManagementPage() {
               )}
               {selectedYear !== 'all' && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-elevated border border-border-subtle text-main font-medium">
-                  <span>Năm: {selectedYear}</span>
+                  <span>{t('resourceManagement.filterBadgeYear', { year: selectedYear })}</span>
                   <button
                     type="button"
                     onClick={() => setSelectedYear('all')}
                     className="text-muted hover:text-danger cursor-pointer"
-                    aria-label="Xóa bộ lọc năm"
+                    aria-label={t('resourceManagement.clearYearFilterAria')}
                   >
                     <i className="fa-solid fa-xmark text-[11px]" />
                   </button>
@@ -2017,21 +2403,22 @@ export default function ResourceManagementPage() {
               {statusFilter !== 'all' && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-elevated border border-border-subtle text-main font-medium">
                   <span>
-                    Hiệu lực: {
-                      statusFilter === 'CON_HIEU_LUC'
-                        ? t('resourceManagement.statusActive')
-                        : statusFilter === 'CON_HIEU_LUC_1_PHAN'
-                          ? t('resourceManagement.statusPartial')
-                          : statusFilter === 'HET_HIEU_LUC'
-                            ? t('resourceManagement.statusExpired')
-                            : t('resourceManagement.statusReplaced')
-                    }
+                    {t('resourceManagement.filterBadgeStatus', {
+                      status:
+                        statusFilter === 'CON_HIEU_LUC'
+                          ? t('resourceManagement.statusActive')
+                          : statusFilter === 'CON_HIEU_LUC_1_PHAN'
+                            ? t('resourceManagement.statusPartial')
+                            : statusFilter === 'HET_HIEU_LUC'
+                              ? t('resourceManagement.statusExpired')
+                              : t('resourceManagement.statusReplaced'),
+                    })}
                   </span>
                   <button
                     type="button"
                     onClick={() => setStatusFilter('all')}
                     className="text-muted hover:text-danger cursor-pointer"
-                    aria-label="Xóa bộ lọc hiệu lực"
+                    aria-label={t('resourceManagement.clearStatusFilterAria')}
                   >
                     <i className="fa-solid fa-xmark text-[11px]" />
                   </button>
@@ -2039,14 +2426,19 @@ export default function ResourceManagementPage() {
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={handleClearFilters}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-danger hover:bg-danger-subtle rounded-md transition-colors font-semibold cursor-pointer shrink-0"
-            >
-              <i className="fa-solid fa-rotate-left text-[11px]" />
-              <span>{t('resourceManagement.clearFilter')}</span>
-            </button>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-primary bg-primary/10 px-2.5 py-1 rounded-md border border-primary/20">
+                {t('resourceManagement.foundDocsCount', { count: filteredDocuments.length })}
+              </span>
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-danger hover:bg-danger-subtle rounded-md transition-colors font-semibold cursor-pointer shrink-0"
+              >
+                <i className="fa-solid fa-rotate-left text-[11px]" />
+                <span>{t('resourceManagement.clearFilter')}</span>
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -2055,10 +2447,14 @@ export default function ResourceManagementPage() {
       <div className="flex items-center justify-between gap-2 text-xs text-secondary px-1">
         <div>
           {totalCount === 0 ? (
-            <span>Hiển thị <strong className="text-main font-bold">0 / 0</strong> tài liệu</span>
+            <span>{t('resourceManagement.displayRange', { start: 0, end: 0, total: 0 })}</span>
           ) : (
             <span>
-              Hiển thị <strong className="text-main font-bold">{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalCount)}</strong> / <strong className="text-main font-bold">{totalCount}</strong> tài liệu
+              {t('resourceManagement.displayRange', {
+                start: (currentPage - 1) * pageSize + 1,
+                end: Math.min(currentPage * pageSize, totalCount),
+                total: totalCount,
+              })}
             </span>
           )}
         </div>
@@ -2091,8 +2487,8 @@ export default function ResourceManagementPage() {
           setCurrentPage(1);
         }}
         onViewDetail={handleViewDetail}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
+        onEdit={isAdmin ? handleEdit : undefined}
+        onDelete={isAdmin ? handleDelete : undefined}
         onDownloadFile={handleDownloadFile}
         onClearFilters={hasActiveFilters ? handleClearFilters : undefined}
         onDrillDown={(categoryId, typeId) => {
@@ -2109,14 +2505,14 @@ export default function ResourceManagementPage() {
         onClose={() => setIsDetailOpen(false)}
         item={detailItem}
         onDownloadFile={handleDownloadFile}
-        onEdit={(item) => {
+        onEdit={isAdmin ? (item) => {
           setIsDetailOpen(false);
           handleEdit(item);
-        }}
-        onDelete={(item) => {
+        } : undefined}
+        onDelete={isAdmin ? (item) => {
           setIsDetailOpen(false);
           handleDelete(item);
-        }}
+        } : undefined}
       />
 
       {/* MODAL THÊM MỚI / SỬA TÀI LIỆU (MỤC 7) */}
@@ -2128,6 +2524,7 @@ export default function ResourceManagementPage() {
         categories={categories}
         types={types}
         isLoading={isSubmittingDoc}
+        defaultCategoryId={selectedCategory !== 'all' ? Number(selectedCategory) : undefined}
       />
 
       {/* MODAL QUẢN LÝ CẤU TRÚC DANH MỤC CẤP 1 & LOẠI BIỂU MẪU CẤP 2 (MỤC 8) */}

@@ -51,6 +51,9 @@ VAN_BAN = {
     11: VanBanDi(id=11, pham_vi="HAN_CHE", nguoi_tao_id=None, so_hieu="11/QD", trich_yeu="Hạn chế"),
     12: VanBanDi(id=12, pham_vi="NOI_BO", hien_thi=False, nguoi_tao_id=None, so_hieu="12/QD", trich_yeu="Không công khai"),
 }
+# Văn bản thường khác: mỗi văn bản chỉ có một hồ sơ đang mở, test cần nhiều hồ sơ thì mỗi hồ sơ một văn bản
+VAN_BAN.update({i: VanBanDi(id=i, pham_vi="NOI_BO", nguoi_tao_id=None, so_hieu=f"{i}/QD", trich_yeu="Văn bản thử")
+                for i in range(20, 60)})
 
 
 def tep_pdf(noi_dung=PDF, ten="du-thao.pdf"):
@@ -84,6 +87,7 @@ class TrinhKyBase(TestCase):
             display_order=Position.get_next_display_order(), name="Trưởng phòng"
         )
         cap_quyen(self.tao, "add_trinhky", "send_trinhky", "view_vanbandi")
+        self._van_ban_tiep = iter([10, *range(20, 60)])
         self.process = self.tao_quy_trinh()
         self.c = self.client_cua(self.tao)
 
@@ -108,8 +112,10 @@ class TrinhKyBase(TestCase):
         return process_service.kich_hoat(quy_trinh, self.tao)
 
     def tao_nhap(self, client=None, **kw):
-        data = {"document_type": "vanbandi", "van_ban_id": 10, "quy_trinh": self.process.pk,
-                "tep": tep_pdf()}
+        """Tạo nháp qua API; không chỉ định văn bản thì lần đầu dùng văn bản 10, các lần sau dùng văn bản mới."""
+        data = {"document_type": "vanbandi", "quy_trinh": self.process.pk, "tep": tep_pdf()}
+        if "van_ban_id" not in kw:
+            data["van_ban_id"] = next(self._van_ban_tiep)
         data.update(kw)
         return (client or self.c).post(f"{BASE}/", data, format="multipart")
 
@@ -285,14 +291,14 @@ class XemTests(TrinhKyBase):
     def test_visibility_and_inboxes(self):
         pk = self.ho_so_da_gui()["id"]
         c1, c2, c3, la = (self.client_cua(u) for u in (self.ky1, self.ky2, self.ky3, self.la))
-        self.assertEqual([h["id"] for h in c1.get(f"{BASE}/?hop=can_toi_ky").data], [pk])
-        self.assertEqual(c2.get(f"{BASE}/?hop=can_toi_ky").data, [])  # ký chính chưa mở
-        self.assertEqual(c3.get(f"{BASE}/?hop=can_toi_ky").data, [])  # cấp sau chưa mở
+        self.assertEqual([h["id"] for h in c1.get(f"{BASE}/?hop=can_toi_ky").data["results"]], [pk])
+        self.assertEqual(c2.get(f"{BASE}/?hop=can_toi_ky").data["results"], [])  # ký chính chưa mở
+        self.assertEqual(c3.get(f"{BASE}/?hop=can_toi_ky").data["results"], [])  # cấp sau chưa mở
         self.assertEqual(c3.get(f"{BASE}/{pk}/").status_code, 200)  # người ký của hồ sơ xem được
-        self.assertEqual([h["id"] for h in self.c.get(f"{BASE}/?hop=toi_gui").data], [pk])
+        self.assertEqual([h["id"] for h in self.c.get(f"{BASE}/?hop=toi_gui").data["results"]], [pk])
         r = la.get(f"{BASE}/{pk}/")
         self.assertEqual((r.status_code, r.data["code"]), (404, "khong_tim_thay"))
-        self.assertEqual(la.get(f"{BASE}/").data, [])
+        self.assertEqual(la.get(f"{BASE}/").data["results"], [])
         self.assertEqual(la.get(f"{BASE}/{pk}/tep/").status_code, 404)
         cap_quyen(self.la, "view_signing_audit")
         kiem_toan = self.client_cua(User.objects.get(pk=self.la.pk))
@@ -314,7 +320,7 @@ class HuyTrinhLaiTests(TrinhKyBase):
         r = self.huy(pk, ly_do="Đổi nội dung")
         self.assertEqual((r.status_code, r.data["trang_thai"]), (200, "HUY"))
         self.assertEqual(r.data["luot_trinh"][0]["trang_thai"], "HUY")
-        self.assertEqual(self.client_cua(self.ky1).get(f"{BASE}/?hop=can_toi_ky").data, [])
+        self.assertEqual(self.client_cua(self.ky1).get(f"{BASE}/?hop=can_toi_ky").data["results"], [])
         self.assertEqual(self.huy(pk).status_code, 200)  # lặp cùng khóa
         r = self.huy(pk, khoa="h2")
         self.assertEqual((r.status_code, r.data["code"]), (409, "ho_so_da_ket_thuc"))

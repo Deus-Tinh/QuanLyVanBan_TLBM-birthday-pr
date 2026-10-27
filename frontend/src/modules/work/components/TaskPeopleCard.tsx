@@ -1,4 +1,5 @@
 import React from 'react';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { Employee } from '../types/employee';
 import { TaskDetail } from '../types/task';
 import { employeeMeta } from './EmployeeSelect';
@@ -21,6 +22,7 @@ interface FlowStep {
 }
 
 export default function TaskPeopleCard({ task, currentUserId }: TaskPeopleCardProps) {
+  const isMobile = useIsMobile();
   const steps: FlowStep[] = [
     { label: 'Lãnh đạo giao việc', icon: 'fa-solid fa-user-tie', color: 'var(--color-purple)', people: [task.creator] },
     { label: 'Chỉ đạo - Theo dõi', icon: 'fa-solid fa-eye', color: 'var(--color-info)', people: task.directors },
@@ -39,7 +41,7 @@ export default function TaskPeopleCard({ task, currentUserId }: TaskPeopleCardPr
         background: 'var(--bg-surface)',
         border: '1px solid var(--border-subtle)',
         borderRadius: 'var(--radius-xl)',
-        padding: '18px 20px',
+        padding: isMobile ? '14px 14px' : '18px 20px',
         boxShadow: 'var(--shadow-sm)',
       }}
     >

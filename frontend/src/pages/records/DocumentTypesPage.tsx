@@ -41,8 +41,8 @@ export default function DocumentTypesPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { currentLang, t } = useTranslation();
-  const stateDossier = (location.state as { dossier?: Dossier } | null)?.dossier;
-  const [dossier, setDossier] = React.useState<Dossier | null>(stateDossier ?? null);
+  const [parentContext, setParentContext] = React.useState<{ routeId: string; dossier: Dossier } | null>(null);
+  const dossier = parentContext?.routeId === dossierId ? parentContext.dossier : null;
   const [items, setItems] = React.useState<DocumentType[]>([]);
   const [count, setCount] = React.useState(0);
   const [page, setPage] = React.useState(1);
@@ -70,9 +70,19 @@ export default function DocumentTypesPage() {
   React.useEffect(() => {
     if (!dossierId) return;
     let active = true;
-    recordsService.getDossier(dossierId).then((value) => { if (active) setDossier(value); }).catch(() => undefined);
+    recordsService.getDossier(dossierId).then((value) => {
+      if (active && String(value.id) === dossierId) setParentContext({ routeId: dossierId, dossier: value });
+    }).catch(() => undefined);
     return () => { active = false; };
   }, [dossierId]);
+
+  React.useEffect(() => {
+    if (!dossier) return;
+    const query = new URLSearchParams(location.search);
+    if (query.getAll('ten_ho_so').length === 1 && query.get('ten_ho_so') === dossier.ten_ho_so.trim()) return;
+    query.set('ten_ho_so', dossier.ten_ho_so.trim());
+    navigate({ pathname: location.pathname, search: `?${query}` }, { replace: true });
+  }, [dossier, location.pathname, location.search, navigate]);
 
   React.useEffect(() => {
     let active = true;
@@ -434,7 +444,7 @@ export default function DocumentTypesPage() {
         message={t('records.documentTypes.confirmDeleteMessage', { name: deleting?.ten_loai ?? '' })}
         isLoading={isSaving} error={deleteError} onCancel={() => { if (!mutationPending.current) setDeleting(null); }}
         onConfirm={() => void handleDelete()} />
-      {selectedCategory && <DocumentDestinationDialog key={String(selectedCategory.id)} category={selectedCategory}
+      {selectedCategory && <DocumentDestinationDialog key={`${dossierId}:${selectedCategory.id}`} category={selectedCategory} dossierId={dossierId || undefined}
         onClose={closeDestination} onNavigate={(destination) => navigate(destination)} />}
     </section>
   );

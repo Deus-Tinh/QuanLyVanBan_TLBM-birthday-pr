@@ -54,3 +54,55 @@ def kiem_tra_phong_chu_pdf(app_configs, **kwargs):
             id="signing.W001",
         )]
     return []
+
+
+def _backend_email_hieu_luc():
+    """Đường dẫn backend email thực dùng để gửi thông báo trình ký (xem `services.thong_bao.ket_noi_email`)."""
+    from .services.thong_bao import SMTP_BACKEND
+
+    rieng = getattr(settings, "SIGNING_EMAIL_BACKEND", "")
+    if rieng and rieng != SMTP_BACKEND:
+        return rieng
+    if hasattr(settings, "MAILERS"):  # Django 6.1: không đọc EMAIL_BACKEND khi đã khai báo MAILERS
+        mac_dinh = settings.MAILERS.get("default")
+        return mac_dinh.get("BACKEND", SMTP_BACKEND) if mac_dinh is not None else ""
+    return settings.EMAIL_BACKEND
+
+
+@register(Tags.compatibility)
+def kiem_tra_cau_hinh_email(app_configs, **kwargs):
+    """
+    Thông báo trình ký gửi email bằng địa chỉ DEFAULT_FROM_EMAIL. Gửi qua SMTP mà để trống thì mọi thư lỗi
+    "Invalid address ''" (ghi THAT_BAI trong outbox). SIGNING_EMAIL_BACKEND chỉ để chọn backend không cần máy chủ
+    (console, locmem); đặt SMTP mà dự án chưa cấu hình EMAIL_HOST thì thư không đi SMTP.
+    """
+    from django.utils.module_loading import import_string
+
+    from .services.thong_bao import SMTP_BACKEND
+
+    loi = []
+    rieng = getattr(settings, "SIGNING_EMAIL_BACKEND", "")
+    if rieng and rieng != SMTP_BACKEND:
+        try:
+            import_string(rieng)
+        except ImportError:
+            loi.append(Error(
+                f"SIGNING_EMAIL_BACKEND không nạp được: {rieng!r}.",
+                hint="Để trống (dùng cấu hình email chung) hoặc đặt django.core.mail.backends.console.EmailBackend.",
+                id="signing.E004",
+            ))
+            return loi
+    backend = _backend_email_hieu_luc()
+    if rieng == SMTP_BACKEND and backend != SMTP_BACKEND:
+        loi.append(Warning(
+            "SIGNING_EMAIL_BACKEND đặt SMTP nhưng cấu hình email chung chưa dùng SMTP (chưa đặt EMAIL_HOST).",
+            hint="Đặt EMAIL_HOST, EMAIL_PORT, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD; SIGNING_EMAIL_BACKEND để trống.",
+            id="signing.W002",
+        ))
+    if backend == SMTP_BACKEND and not (getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").strip():
+        loi.append(Warning(
+            "Gửi email qua SMTP nhưng DEFAULT_FROM_EMAIL trống: thông báo trình ký sẽ lỗi \"Invalid address ''\".",
+            hint="Đặt biến môi trường DEFAULT_FROM_EMAIL, ví dụ: Hệ thống QLVB <qlvb@baohiembaolong.vn>.",
+            id="signing.W003",
+        ))
+    return loi

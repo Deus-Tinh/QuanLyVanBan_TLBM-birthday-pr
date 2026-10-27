@@ -1,6 +1,6 @@
 /** Tiến trình ký của một lượt trình: cấp mở tuần tự, người trong cấp ký song song (#80 mục B, E). */
 import { Badge } from '@components/common';
-import { dinhDangNgay } from '@lib/signing/dinhDang';
+import { dinhDangNgay, trangThaiNguoiKy } from '@lib/signing/dinhDang';
 import { useSigningT } from '@lib/signing/i18n';
 import type { LuotTrinh } from '@lib/signing/types';
 import { TrangThaiBadge } from './ChungUI';
@@ -37,13 +37,19 @@ export default function TienTrinh({ luot, toiId }: { luot: LuotTrinh; toiId?: nu
                     </span>
                     {n.ten_chuc_vu && <span className="text-secondary"> · {n.ten_chuc_vu}</span>}
                     <span className="text-muted"> · {t(`vaiTro.${n.vai_tro_ky}`)}</span>
-                    {n.chu_ky?.ghi_chu_ky && <div className="text-xs text-secondary italic">“{n.chu_ky.ghi_chu_ky}”</div>}
-                    {n.ly_do_tu_choi && <div className="text-xs text-danger">{n.ly_do_tu_choi}</div>}
+                    {n.ten_nguoi_uy_quyen && (
+                      <div className="text-xs text-secondary" title={n.ly_do_uy_quyen}>
+                        <i className="fa-solid fa-user-group mr-1" aria-hidden="true" />
+                        {t('chiTiet.uyQuyenTu', { ten: n.ten_nguoi_uy_quyen })}
+                      </div>
+                    )}
+                    {n.chu_ky?.ghi_chu_ky && <div className="text-xs text-secondary italic break-words">“{n.chu_ky.ghi_chu_ky}”</div>}
+                    {n.ly_do_tu_choi && <div className="text-xs text-danger break-words">{n.ly_do_tu_choi}</div>}
                   </div>
                   <div className="flex items-center gap-2">
                     {n.chu_ky?.ky_tre_han && <Badge variant="danger" size="sm">{t('chiTiet.treHan')}</Badge>}
                     {n.ngay_ky && <span className="text-xs text-secondary">{dinhDangNgay(n.ngay_ky, lang)}</span>}
-                    <TrangThaiBadge trangThai={n.trang_thai === 'CHO_KY' && !n.thoi_diem_mo ? 'CHUA_MO' : n.trang_thai} />
+                    <TrangThaiBadge trangThai={trangThaiNguoiKy(luot.trang_thai, n.trang_thai, Boolean(n.thoi_diem_mo))} />
                   </div>
                 </li>
               ))}
