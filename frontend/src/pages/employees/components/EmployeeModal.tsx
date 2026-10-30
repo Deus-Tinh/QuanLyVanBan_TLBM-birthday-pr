@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useTranslation } from '@i18n/translate';
+import { formatGroupName } from '@lib/roleUtils';
 import { Employee, Position, GroupSimple, EmployeeCreatePayload, EmployeeUpdatePayload, EmployeeStatus } from '@app-types/employee';
 import { Unit } from '@app-types/organization';
 import { Button } from '@components/common/Button';
@@ -32,7 +33,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({
   isAdmin = false,
   onChangePassword,
 }) => {
-  const { t } = useTranslation();
+  const { t, currentLang } = useTranslation();
   const formRef = useRef<HTMLFormElement>(null);
   const birthdayDateInputRef = useRef<HTMLInputElement>(null);
   const birthdayDateButtonRef = useRef<HTMLButtonElement>(null);
@@ -977,7 +978,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({
                           onChange={() => handleGroupToggle(group.id)}
                           className="h-3.5 w-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer disabled:cursor-not-allowed"
                         />
-                        <span>{group.name}</span>
+                        <span>{formatGroupName(group.name, currentLang)}</span>
                       </label>
                     );
                   })}
