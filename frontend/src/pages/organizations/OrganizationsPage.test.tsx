@@ -245,4 +245,142 @@ describe('OrganizationsPage Component (Issue #19)', () => {
       expect(screen.queryByText(/kết nối mạng/i)).not.toBeInTheDocument();
     });
   });
+
+  it('khóa dropdown Đơn vị cho tới khi chọn Khối và reset khi đổi Khối', async () => {
+    const unitA = { id: 1, khoi: 1, khoi_ten: 'Khối A', stt_uu_tien: 1, ten: 'Phòng Kế toán', is_public: true };
+    const unitB = { id: 2, khoi: 1, khoi_ten: 'Khối A', stt_uu_tien: 2, ten: 'Phòng Nhân sự', is_public: true };
+    const unitC = { id: 3, khoi: 2, khoi_ten: 'Khối B', stt_uu_tien: 3, ten: 'Phòng Kỹ thuật', is_public: true };
+    mockedApiClient.mockImplementation(async (endpoint: string) => {
+      if (endpoint.includes('/regions/')) {
+        return [
+          { id: 1, ten: 'Khối A', don_vi_count: 2 },
+          { id: 2, ten: 'Khối B', don_vi_count: 1 },
+        ];
+      }
+      if (endpoint.includes('/units/') && endpoint.includes('all=true')) {
+        return [unitA, unitB, unitC];
+      }
+      if (endpoint.includes('/units/')) {
+        const rows = endpoint.includes('region_id=1')
+          ? [unitA, unitB]
+          : endpoint.includes('region_id=2')
+            ? [unitC]
+            : [unitA, unitB, unitC];
+        return { count: rows.length, next: null, previous: null, results: rows };
+      }
+      return [];
+    });
+
+    render(
+      <MemoryRouter>
+        <OrganizationsPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText('Phòng Kỹ thuật')).toBeInTheDocument());
+
+    // Chưa chọn Khối: dropdown Đơn vị bị khóa
+    const unitSelect = screen.getByRole('button', { name: 'Chọn Khối trước' });
+    expect(unitSelect).toBeDisabled();
+
+    // Chọn Khối A: mở khóa, chỉ liệt kê đơn vị của Khối A
+    fireEvent.click(screen.getByRole('button', { name: 'Tất cả các Khối/Khu vực' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Khối A/ }));
+    const unitSelectOn = await screen.findByRole('button', { name: 'Tất cả đơn vị thuộc Khối' });
+    await waitFor(() => expect(unitSelectOn).toBeEnabled());
+    fireEvent.click(unitSelectOn);
+    expect(await screen.findByRole('option', { name: /Phòng Nhân sự/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Phòng Kỹ thuật/ })).not.toBeInTheDocument();
+
+    // Chọn một đơn vị: bảng chỉ còn đơn vị đó
+    fireEvent.click(screen.getByRole('option', { name: /Phòng Nhân sự/ }));
+    await waitFor(() => expect(screen.queryByText('Phòng Kế toán')).not.toBeInTheDocument());
+
+    // Đổi Khối: Đơn vị đã chọn bị reset
+    fireEvent.click(screen.getByRole('button', { name: 'Tất cả các Khối/Khu vực' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Khối B/ }));
+    await waitFor(() => expect(screen.getByText('Phòng Kỹ thuật')).toBeInTheDocument());
+    expect(screen.queryByText('Phòng Nhân sự')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tất cả đơn vị thuộc Khối' })).toBeInTheDocument();
+  });
+
+  it('rê chuột vào Khối thì hiện Đơn vị của Khối, bấm Đơn vị thì lọc thẳng theo Đơn vị', async () => {
+    const unitA = { id: 1, khoi: 1, khoi_ten: 'Khối A', stt_uu_tien: 1, ten: 'Phòng Kế toán', is_public: true };
+    const unitB = { id: 2, khoi: 1, khoi_ten: 'Khối A', stt_uu_tien: 2, ten: 'Phòng Nhân sự', is_public: true };
+    const unitC = { id: 3, khoi: 2, khoi_ten: 'Khối B', stt_uu_tien: 3, ten: 'Phòng Kỹ thuật', is_public: true };
+    mockedApiClient.mockImplementation(async (endpoint: string) => {
+      if (endpoint.includes('/regions/')) {
+        return [
+          { id: 1, ten: 'Khối A', don_vi_count: 2 },
+          { id: 2, ten: 'Khối B', don_vi_count: 1 },
+        ];
+      }
+      if (endpoint.includes('/units/') && endpoint.includes('all=true')) return [unitA, unitB, unitC];
+      if (endpoint.includes('/units/')) {
+        const rows = endpoint.includes('region_id=1') ? [unitA, unitB] : endpoint.includes('region_id=2') ? [unitC] : [unitA, unitB, unitC];
+        return { count: rows.length, next: null, previous: null, results: rows };
+      }
+      return [];
+    });
+
+    render(
+      <MemoryRouter>
+        <OrganizationsPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText('Phòng Kỹ thuật')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tất cả các Khối/Khu vực' }));
+    const regionA = await screen.findByRole('option', { name: 'Khối A' });
+    // Chưa hover: chưa thấy đơn vị
+    expect(screen.queryAllByRole('option', { name: 'Phòng Nhân sự' })).toHaveLength(0);
+
+    // Hover Khối A: hiện đơn vị của Khối A, không hiện đơn vị của Khối B
+    fireEvent.mouseEnter(regionA.parentElement!.parentElement!);
+    expect(screen.getAllByRole('option', { name: 'Phòng Nhân sự' }).length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole('option', { name: 'Phòng Kỹ thuật' })).toHaveLength(0);
+
+    // Bấm đơn vị: chọn luôn Khối A + đơn vị đó, bảng chỉ còn đơn vị đó
+    fireEvent.click(screen.getAllByRole('option', { name: 'Phòng Nhân sự' })[0]);
+    await waitFor(() => expect(screen.queryByText('Phòng Kế toán')).not.toBeInTheDocument());
+    expect(screen.getAllByText('Phòng Nhân sự').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Tất cả đơn vị thuộc Khối' })).toBeEnabled();
+  });
+
+  it('danh sách Đơn vị bung ra ngoài khung cuộn của Khối và ô tìm kiếm vẫn lọc đơn vị đã chọn', async () => {
+    const unitA = { id: 1, khoi: 1, khoi_ten: 'Khối A', stt_uu_tien: 1, ten: 'Phòng Kế toán', is_public: true };
+    const unitB = { id: 2, khoi: 1, khoi_ten: 'Khối A', stt_uu_tien: 2, ten: 'Phòng Nhân sự', is_public: true };
+    mockedApiClient.mockImplementation(async (endpoint: string) => {
+      if (endpoint.includes('/regions/')) return [{ id: 1, ten: 'Khối A', don_vi_count: 2 }];
+      if (endpoint.includes('/units/') && endpoint.includes('all=true')) return [unitA, unitB];
+      if (endpoint.includes('/units/')) {
+        const rows = endpoint.includes('search=') ? [] : [unitA, unitB];
+        return { count: rows.length, next: null, previous: null, results: rows };
+      }
+      return [];
+    });
+
+    render(
+      <MemoryRouter>
+        <OrganizationsPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText('Phòng Nhân sự')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tất cả các Khối/Khu vực' }));
+    const regionA = await screen.findByRole('option', { name: 'Khối A' });
+    fireEvent.mouseEnter(regionA.parentElement!.parentElement!);
+    const unitOptions = screen.getAllByRole('option', { name: 'Phòng Nhân sự' });
+    const unitOption = unitOptions[unitOptions.length - 1];
+    // Panel đơn vị nằm trực tiếp trong body (không nằm trong khung cuộn nên không bị cắt)
+    expect(unitOption.closest('.fixed')?.parentElement).toBe(document.body);
+
+    fireEvent.click(unitOption);
+    await waitFor(() => expect(screen.queryByText('Phòng Kế toán')).not.toBeInTheDocument());
+
+    // Gõ từ khóa không khớp đơn vị đã chọn: bảng không còn dòng nào
+    fireEvent.change(screen.getByPlaceholderText(/Tìm kiếm theo tên/), { target: { value: 'xyz' } });
+    // (nhãn của ô chọn Đơn vị vẫn hiện tên đơn vị nên chỉ kiểm phần thân bảng)
+    await waitFor(() => expect(document.querySelector('tbody')!.textContent).not.toContain('Phòng Nhân sự'));
+    expect(document.querySelector('tbody')!.textContent).not.toContain('Phòng Kế toán');
+  });
 });
