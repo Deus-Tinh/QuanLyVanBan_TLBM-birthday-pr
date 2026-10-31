@@ -82,9 +82,9 @@ export const Toast: React.FC<ToastProps> = ({ toast, onClose }) => {
       role="status"
       aria-live="polite"
     >
-      {/* Toast Card */}
+      {/* Toast Card: Nền đặc 100% OPAQUE (bg-white / dark:bg-[#121824]), hoàn toàn không trong suốt */}
       <div
-        className="relative overflow-hidden rounded-2xl bg-white/98 dark:bg-[#121824]/98 backdrop-blur-md border border-slate-200/90 dark:border-slate-800/90 shadow-[0_12px_36px_-6px_rgba(15,23,42,0.16),0_4px_16px_-2px_rgba(15,23,42,0.08)] dark:shadow-[0_16px_40px_-6px_rgba(0,0,0,0.6),0_4px_16px_-2px_rgba(0,0,0,0.4)] p-4"
+        className="relative overflow-hidden rounded-2xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-slate-800 shadow-2xl p-4"
       >
         <div className="flex items-start gap-3.5">
           {/* Status Icon */}
