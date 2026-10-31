@@ -287,6 +287,9 @@ class TaiLieuChiTietViewSet(viewsets.ModelViewSet):
                 obj.ngay_het_hieu_luc = ngay_het_hieu_luc if ngay_het_hieu_luc != '' else None
 
         try:
+            if obj.hieu_luc in ('HET_HIEU_LUC', 'HET_VA_THAY_THE') and not obj.ngay_het_hieu_luc:
+                from django.utils import timezone
+                obj.ngay_het_hieu_luc = timezone.localdate()
             obj.full_clean()
             obj.save()
         except DjangoValidationError as e:
