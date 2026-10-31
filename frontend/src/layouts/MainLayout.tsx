@@ -9,6 +9,7 @@ import AppFooter from '@components/layout/AppFooter';
 import { ActivePageId } from '@app-types/navigation';
 import { ThemeMode } from '@app-types/theme';
 import { pathToPageId, pageIdToPath } from '@lib/routes';
+import { usePermissions } from '@lib/permissions';
 
 interface MainLayoutProps {
   children?: React.ReactNode;
@@ -41,6 +42,8 @@ export default function MainLayout({
 }: MainLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { loaded: permissionsLoaded, can } = usePermissions();
+  const canUseAI = permissionsLoaded && can('use_aiassistant');
 
   const currentActivePage = activePage || pathToPageId(location.pathname);
   const effectiveCommittedPage = committedPage || currentActivePage;
@@ -298,8 +301,21 @@ export default function MainLayout({
     }
 
     const handleScroll = () => {
+      if (scrollContainer) {
+        const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
+        // Nếu độ dài cuộn khả dụng < 120px (trang ngắn), giữ nguyên TopSubNav để tránh vòng lặp co giãn gây nháy (jitter loop)
+        if (maxScroll < 120) {
+          setIsScrolled(false);
+          return;
+        }
+      }
       const scrollY = (scrollContainer ? scrollContainer.scrollTop : 0) || window.scrollY || document.documentElement.scrollTop || 0;
-      setIsScrolled(scrollY > 60);
+      setIsScrolled((prev) => {
+        // Hysteresis (độ trễ ngưỡng): cuộn xuống > 80px mới thu gọn, cuộn ngược lên < 20px mới mở rộng
+        if (!prev && scrollY > 80) return true;
+        if (prev && scrollY < 20) return false;
+        return prev;
+      });
     };
 
     const rafId = requestAnimationFrame(() => {
@@ -440,7 +456,7 @@ export default function MainLayout({
       )}
 
       {/* 5. Box AI Trợ Lý nổi - Tự động ẩn khi người dùng đang ở trang Trợ lý AI toàn màn hình */}
-      {currentActivePage !== 'ai_assistant' && location.pathname !== '/ai-assistant' && (
+      {canUseAI && currentActivePage !== 'ai_assistant' && location.pathname !== '/ai-assistant' && (
         <FloatingAIBox onNavigate={handleNavigate} />
       )}
     </div>

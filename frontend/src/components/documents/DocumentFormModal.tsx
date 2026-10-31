@@ -2425,15 +2425,15 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                   {existingAttachments.map(att => (
                     <div
                       key={att.id}
-                      className="flex items-center justify-between p-2.5 bg-surface border border-border-subtle rounded-xl text-xs"
+                      className="flex items-center justify-between p-2.5 bg-surface border border-border-subtle rounded-xl text-xs overflow-hidden min-w-0"
                     >
-                      <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                         <i className={`${getFileIcon(att.file_name)} text-sm shrink-0`} />
-                        <span className="truncate text-main font-medium" title={att.file_name}>
+                        <span className="truncate text-main font-medium min-w-0 flex-1" title={att.file_name}>
                           {att.file_name}
                         </span>
                         {att.file_size && (
-                          <span className="text-xs text-muted shrink-0">
+                          <span className="text-xs text-muted shrink-0 whitespace-nowrap">
                             ({formatFileSize(att.file_size)})
                           </span>
                         )}
@@ -2523,14 +2523,14 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                     {files.map((file, idx) => (
                       <div
                         key={idx}
-                        className="flex items-center justify-between p-2 px-3 bg-surface border border-border-subtle rounded-xl text-xs"
+                        className="flex items-center justify-between p-2 px-3 bg-surface border border-border-subtle rounded-xl text-xs overflow-hidden min-w-0"
                       >
-                        <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                           <i className={`${getFileIcon(file.name)} text-sm shrink-0`} />
-                          <span className="truncate text-main font-medium" title={file.name}>
+                          <span className="truncate text-main font-medium min-w-0 flex-1" title={file.name}>
                             {file.name}
                           </span>
-                          <span className="text-xs text-muted shrink-0">
+                          <span className="text-xs text-muted shrink-0 whitespace-nowrap">
                             ({formatFileSize(file.size)})
                           </span>
                         </div>
