@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { t, useTranslation } from '@i18n/translate';
 import { API_BASE_URL, ApiError, authHeaders, toMessage } from '../api/client';
 import { createTask, getTask, updateTask } from '../api/tasks';
 import { Attachment, TaskDetail, TaskFormValues } from '../types/task';
@@ -86,36 +87,34 @@ function validate(values: TaskFormValues, isEdit: boolean): FieldErrors {
   const errors: FieldErrors = {};
   const today = todayIso();
 
-  if (!values.title.trim()) errors.title = 'Hãy nhập nội dung công việc.';
-  if (!values.requirement.trim()) errors.requirement = 'Hãy nhập yêu cầu xử lý.';
+  if (!values.title.trim()) errors.title = t('work.taskForm.errTitle');
+  if (!values.requirement.trim()) errors.requirement = t('work.taskForm.errRequirement');
 
   if (!values.createdDate) {
-    errors.createdDate = 'Hãy chọn ngày tạo.';
+    errors.createdDate = t('work.taskForm.errCreatedDate');
   } else if (!isEdit && values.createdDate < today) {
-    errors.createdDate = 'Ngày tạo không được ở trong quá khứ. Hãy chọn hôm nay hoặc một ngày sau hôm nay.';
+    errors.createdDate = t('work.taskForm.errCreatedDatePast');
   }
 
   if (!values.dueDate) {
-    errors.dueDate = 'Hãy chọn ngày xử lý.';
+    errors.dueDate = t('work.taskForm.errDueDate');
   } else if (values.createdDate && values.dueDate < values.createdDate) {
-    errors.dueDate = 'Ngày xử lý đang trước ngày tạo. Hãy chọn ngày xử lý bằng hoặc sau ngày tạo.';
+    errors.dueDate = t('work.taskForm.errDueDateBeforeCreated');
   } else if (isEdit && values.dueDate < today) {
-    errors.dueDate =
-      'Hạn xử lý đã ở trong quá khứ nên công việc sẽ bị khóa ngay sau khi lưu. Hãy chọn hạn xử lý từ hôm nay trở đi.';
+    errors.dueDate = t('work.taskForm.errDueDatePast');
   }
 
-  if (values.hostId === null) errors.hostId = 'Hãy chọn người chủ trì giải quyết công việc.';
-  if (!values.directorIds.length) errors.directorIds = 'Hãy chọn ít nhất một người chỉ đạo - theo dõi tiến độ.';
+  if (values.hostId === null) errors.hostId = t('work.taskForm.errHost');
+  if (!values.directorIds.length) errors.directorIds = t('work.taskForm.errDirectors');
   if (!values.participantIds.length) {
-    errors.participantIds = 'Hãy chọn ít nhất một cán bộ tham gia giải quyết công việc.';
+    errors.participantIds = t('work.taskForm.errParticipants');
   }
 
   const overlap = values.participantIds.some(
     (id) => id === values.hostId || values.directorIds.includes(id),
   ) || values.directorIds.includes(values.hostId ?? -1);
   if (overlap) {
-    errors.participantIds =
-      'Có cán bộ đang giữ hai vai trò. Mỗi cán bộ chỉ giữ một vai trò trong công việc, hãy bỏ cán bộ đó khỏi một vai trò.';
+    errors.participantIds = t('work.taskForm.errRoleOverlap');
   }
 
   return errors;
@@ -199,6 +198,7 @@ function Field({
 }
 
 export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFormModalProps) {
+  const { t: tr } = useTranslation();
   const isEdit = taskId !== null;
   const [values, setValues] = useState<TaskFormValues>(emptyValues);
   const [existingFiles, setExistingFiles] = useState<Attachment[]>([]);
@@ -241,7 +241,7 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
         setExistingFiles(task.attachments);
         if (!task.permissions.canEdit) {
           setLockedReason(
-            `Công việc đang ở trạng thái "${task.statusLabel}" hoặc bạn không phải người tạo/người chủ trì nên không sửa được. Hãy đóng form và tải lại danh sách.`,
+            t('work.taskForm.lockedReason', { status: task.statusLabel }),
           );
         }
       })
@@ -273,7 +273,7 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
     const count = Object.values(found).filter(Boolean).length;
     if (count) {
       setErrors(found);
-      setFormError(`Còn ${count} mục chưa hợp lệ. Hãy sửa theo các dòng báo đỏ bên dưới rồi bấm Lưu lại.`);
+      setFormError(tr('work.taskForm.validationCount', { count: String(count) }));
       return;
     }
 
@@ -294,7 +294,7 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
         setFormError(
           otherMessage ||
             (Object.keys(mapped).length
-              ? 'Máy chủ không chấp nhận một số mục. Hãy sửa theo các dòng báo đỏ bên dưới rồi bấm Lưu lại.'
+              ? tr('work.taskForm.serverValidation')
               : cause.message),
         );
       } else {
@@ -314,8 +314,8 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
   return (
     <WorkModal
       open={open}
-      title="Cập nhật thông tin công việc"
-      subtitle={isEdit ? 'Sửa công việc đã giao' : 'Thêm công việc mới'}
+      title={tr('work.taskForm.modalTitle')}
+      subtitle={isEdit ? tr('work.taskForm.subtitleEdit') : tr('work.taskForm.subtitleCreate')}
       onClose={onClose}
       width="lg"
       busy={saving}
@@ -336,7 +336,7 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
               cursor: saving ? 'not-allowed' : 'pointer',
             }}
           >
-            Hủy bỏ
+            {tr('work.taskForm.cancelButton')}
           </button>
           <button
             type="button"
@@ -358,14 +358,14 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
             }}
           >
             <i className={saving ? 'fa-solid fa-circle-notch fa-spin' : 'fa-solid fa-floppy-disk'} />
-            {saving ? 'Đang lưu...' : 'Lưu công việc'}
+            {saving ? tr('work.common.saving') : tr('work.taskForm.saveButton')}
           </button>
         </>
       }
     >
       {loading ? (
         <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-          <i className="fa-solid fa-circle-notch fa-spin" /> Đang tải thông tin công việc...
+          <i className="fa-solid fa-circle-notch fa-spin" /> {tr('work.taskForm.loadingTask')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -381,52 +381,52 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
             }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <Field label="Nội dung công việc" required htmlFor="work-form-title" error={errors.title}>
+              <Field label={tr('work.taskForm.labelTitle')} required htmlFor="work-form-title" error={errors.title}>
                 <textarea
                   id="work-form-title"
                   value={values.title}
                   disabled={disabled}
                   onChange={(event) => update('title', event.target.value)}
-                  placeholder="Ví dụ: Chuẩn bị báo cáo tổng kết quý 3"
+                  placeholder={tr('work.taskForm.placeholderTitle')}
                   style={textAreaStyle(Boolean(errors.title))}
                 />
               </Field>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
-                <Field label="Ngày tạo" required error={errors.createdDate}>
+                <Field label={tr('work.taskForm.labelCreatedDate')} required error={errors.createdDate}>
                   <DateInput
                     value={values.createdDate}
                     onChange={(next) => update('createdDate', next)}
                     min={isEdit ? undefined : today}
                     disabled={disabled}
                     invalid={Boolean(errors.createdDate)}
-                    ariaLabel="Ngày tạo"
+                    ariaLabel={tr('work.taskForm.labelCreatedDate')}
                   />
                 </Field>
-                <Field label="Ngày xử lý" required error={errors.dueDate}>
+                <Field label={tr('work.taskForm.labelDueDate')} required error={errors.dueDate}>
                   <DateInput
                     value={values.dueDate}
                     onChange={(next) => update('dueDate', next)}
                     min={dueMin}
                     disabled={disabled}
                     invalid={Boolean(errors.dueDate)}
-                    ariaLabel="Ngày xử lý"
+                    ariaLabel={tr('work.taskForm.labelDueDate')}
                   />
                 </Field>
               </div>
 
-              <Field label="Yêu cầu xử lý" required htmlFor="work-form-requirement" error={errors.requirement}>
+              <Field label={tr('work.taskForm.labelRequirement')} required htmlFor="work-form-requirement" error={errors.requirement}>
                 <textarea
                   id="work-form-requirement"
                   value={values.requirement}
                   disabled={disabled}
                   onChange={(event) => update('requirement', event.target.value)}
-                  placeholder="Mô tả kết quả cần đạt, tài liệu cần nộp..."
+                  placeholder={tr('work.taskForm.placeholderRequirement')}
                   style={textAreaStyle(Boolean(errors.requirement))}
                 />
               </Field>
 
-              <Field label="Tệp đính kèm" error={errors.attachments}>
+              <Field label={tr('work.taskForm.labelAttachments')} error={errors.attachments}>
                 {existingFiles.length > 0 && (
                   <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '8px' }}>
                     {existingFiles.map((file) => {
@@ -461,7 +461,7 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
                             {file.fileName}
                           </span>
                           <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                            {removing ? 'Sẽ xóa khi lưu' : formatFileSize(file.size)}
+                            {removing ? tr('work.taskForm.willDeleteOnSave') : formatFileSize(file.size)}
                           </span>
                           <button
                             type="button"
@@ -477,7 +477,7 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
                               padding: '2px 4px',
                             }}
                           >
-                            {removing ? 'Giữ lại' : 'Bỏ file'}
+                            {removing ? tr('work.taskForm.keepFile') : tr('work.taskForm.removeFile')}
                           </button>
                         </li>
                       );
@@ -488,7 +488,7 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
                   files={values.attachments}
                   onChange={(files) => update('attachments', files)}
                   disabled={disabled}
-                  buttonLabel={isEdit ? 'Thêm file' : 'Chọn file'}
+                  buttonLabel={isEdit ? tr('work.taskForm.addFile') : tr('work.taskForm.selectFile')}
                 />
               </Field>
 
@@ -513,10 +513,10 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
                 />
                 <span>
                   <span style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                    Trạng thái hiển thị
+                    {tr('work.taskForm.labelVisibility')}
                   </span>
                   <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                    Bỏ chọn để ẩn công việc: khi đó chỉ người tạo và quản trị viên nhìn thấy.
+                    {tr('work.taskForm.visibilityHint')}
                   </span>
                 </span>
               </label>
@@ -524,9 +524,9 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <Field
-                label="Chủ trì giải quyết công việc"
+                label={tr('work.taskForm.labelHost')}
                 required
-                hint="Người có thẩm quyền xử lý công việc"
+                hint={tr('work.taskForm.hostHint')}
                 error={errors.hostId}
               >
                 <EmployeeSelect
@@ -535,24 +535,24 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
                   excludeIds={[...values.directorIds, ...values.participantIds]}
                   disabled={disabled}
                   invalid={Boolean(errors.hostId)}
-                  placeholder="Chọn người chủ trì"
+                  placeholder={tr('work.taskForm.placeholderHost')}
                 />
               </Field>
 
-              <Field label="Chỉ đạo - Theo dõi tiến độ xử lý công việc" required error={errors.directorIds}>
+              <Field label={tr('work.taskForm.labelDirectors')} required error={errors.directorIds}>
                 <EmployeeMultiSelect
                   value={values.directorIds}
                   onChange={(next) => update('directorIds', next)}
                   excludeIds={[...(values.hostId !== null ? [values.hostId] : []), ...values.participantIds]}
                   disabled={disabled}
                   invalid={Boolean(errors.directorIds)}
-                  placeholder="Chọn người chỉ đạo"
+                  placeholder={tr('work.taskForm.placeholderDirectors')}
                 />
               </Field>
 
               <Field
-                label="Phòng ban phối hợp"
-                hint="Chọn nhiều phòng/ban; người có quyền xem theo phòng ban sẽ thấy công việc này"
+                label={tr('work.taskForm.labelDonVi')}
+                hint={tr('work.taskForm.donViHint')}
               >
                 <div
                   style={{
@@ -566,7 +566,7 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
                 >
                   <input
                     type="text"
-                    placeholder="Tìm phòng ban..."
+                    placeholder={tr('work.taskForm.donViSearchPlaceholder')}
                     value={donViSearch}
                     onChange={(e) => setDonViSearch(e.target.value)}
                     style={{
@@ -591,7 +591,7 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
                   >
                     {donViList.length === 0 && (
                       <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                        Đang tải danh sách phòng ban...
+                        {tr('work.taskForm.donViLoading')}
                       </span>
                     )}
                     {filteredDonVi.map((donVi) => {
@@ -627,27 +627,27 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
                     })}
                     {donViList.length > 0 && filteredDonVi.length === 0 && (
                       <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                        Không tìm thấy phòng ban nào
+                        {tr('work.taskForm.donViNoResults')}
                       </span>
                     )}
                   </div>
                 </div>
               </Field>
 
-              <Field label="Cán bộ tham gia giải quyết công việc" required error={errors.participantIds}>
+              <Field label={tr('work.taskForm.labelParticipants')} required error={errors.participantIds}>
                 <EmployeeMultiSelect
                   value={values.participantIds}
                   onChange={(next) => update('participantIds', next)}
                   excludeIds={[...(values.hostId !== null ? [values.hostId] : []), ...values.directorIds]}
                   disabled={disabled}
                   invalid={Boolean(errors.participantIds)}
-                  placeholder="Chọn cán bộ tham gia"
+                  placeholder={tr('work.taskForm.placeholderParticipants')}
                 />
               </Field>
 
               <WorkAlert
                 variant="info"
-                message="Mỗi cán bộ chỉ giữ một vai trò trong công việc. Người đã được chọn ở vai trò này sẽ không hiện trong danh sách của vai trò khác."
+                message={tr('work.taskForm.roleExclusiveHint')}
               />
             </div>
           </div>
