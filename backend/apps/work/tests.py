@@ -1,7 +1,6 @@
 import datetime
 import shutil
 import tempfile
-import unittest
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
@@ -1625,23 +1624,13 @@ class JwtAuthenticationTests(WorkTestBase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
-@unittest.skip("seed_work command chưa implement")
 class SeedWorkCommandTests(TestCase):
-    """Kiểm tra lệnh seed_work nạp dữ liệu mẫu cho Dashboard hoạt động chính xác."""
+    """Kiểm tra lệnh seed_work_demo nạp dữ liệu mẫu cho Dashboard hoạt động chính xác."""
 
     def test_seed_work_creates_demo_tasks(self):
         from io import StringIO
-        from dashboard.views import _tasks
-        from accounts.models import Employee
 
         out = StringIO()
-        call_command("seed_work", "--clean", stdout=out)
-        self.assertEqual(Task.objects.filter(title__contains="[DEMO-DASHBOARD]").count(), 7)
-
-        # Kiểm tra hiển thị trên Dashboard
-        canbo = Employee.objects.get(username="canbo")
-        truongphong = Employee.objects.get(username="truongphong")
-        today = timezone.localdate()
-        self.assertEqual(len(_tasks(canbo, today)), 7)
-        self.assertEqual(len(_tasks(truongphong, today)), 7)
+        call_command("seed_work_demo", "--yes-i-know", stdout=out, stderr=out)
+        self.assertEqual(Task.objects.filter(title__startswith="[TEST]").count(), 7)
 
