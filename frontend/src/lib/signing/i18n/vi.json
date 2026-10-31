@@ -66,6 +66,10 @@
     "PHONG_BAN": "Phòng ban"
   },
   "danhSach": {
+    "chiTietHoSo": "Chi tiết hồ sơ",
+    "moHoSo": "Mở hồ sơ",
+    "moDeKyDuyet": "Mở để ký duyệt",
+    "lichSuGanDay": "Lịch sử gần đây",
     "cheDoHoSo": "Hồ sơ trình ký",
     "cheDoTep": "Tệp tài liệu",
     "rongCanToiKy": "Không có hồ sơ nào đang chờ bạn ký duyệt.",

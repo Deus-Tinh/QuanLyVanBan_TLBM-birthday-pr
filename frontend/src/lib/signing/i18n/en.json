@@ -66,6 +66,10 @@
     "PHONG_BAN": "Department"
   },
   "danhSach": {
+    "chiTietHoSo": "Approval details",
+    "moHoSo": "Open approval",
+    "moDeKyDuyet": "Open to review and sign",
+    "lichSuGanDay": "Recent history",
     "cheDoHoSo": "Signing dossiers",
     "cheDoTep": "Document files",
     "rongCanToiKy": "Nothing is waiting for your signature.",

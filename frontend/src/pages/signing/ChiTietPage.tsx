@@ -15,11 +15,11 @@ import TienTrinh from '@components/signing/TienTrinh';
 import TraoDoiPanel from '@components/signing/TraoDoiPanel';
 import XemPdf, { type KhungHienThi } from '@components/signing/XemPdf';
 import { docLoi, signingApi } from '@lib/signing/api';
-import { dinhDangNgay, inPdf, loiTepHoanTatHienThi, moTaVanBan } from '@lib/signing/dinhDang';
+import { chiTietNhatKy, dinhDangNgay, inPdf, moTaVanBan } from '@lib/signing/dinhDang';
 import { useTai, useToi } from '@lib/signing/hooks';
-import { useSigningT, type HamDich } from '@lib/signing/i18n';
+import { useSigningT } from '@lib/signing/i18n';
 import { sha256Hex } from '@lib/signing/khoaKy';
-import type { HoSoChiTiet, NhatKy } from '@lib/signing/types';
+import type { HoSoChiTiet } from '@lib/signing/types';
 import { soKhung, viTriCuaNguoiKy } from '@lib/signing/viTri';
 
 function DongThongTin({ nhan, children }: { nhan: string; children: ReactNode }) {
@@ -29,22 +29,6 @@ function DongThongTin({ nhan, children }: { nhan: string; children: ReactNode })
       <span className="text-main font-semibold sm:text-right min-w-0 break-words">{children}</span>
     </div>
   );
-}
-
-function chiTietNhatKy(e: NhatKy, t: HamDich): string {
-  if (!e.chi_tiet || e.hanh_dong === 'THEM_CAP_KY' || e.hanh_dong === 'MO_CAP_KY') return '';
-  if (e.hanh_dong === 'LOI_TAO_TEP_HOAN_TAT') return loiTepHoanTatHienThi(e.chi_tiet, t);
-  if (e.hanh_dong === 'LIEN_KET_VAN_BAN_DI') {
-    const soHieu = e.chi_tiet.match(/^#\d+\s*·\s*(.+)$/)?.[1];
-    return soHieu ? t('chiTiet.soHieuVanBanLienKet', { soHieu }) : '';
-  }
-  if (e.hanh_dong === 'NGUNG_QUY_TRINH') {
-    const phienBan = e.chi_tiet.match(/^Thay bằng phiên bản (\d+)$/)?.[1];
-    return phienBan ? t('chiTiet.quyTrinhThayThe', { so: Number(phienBan) }) : '';
-  }
-  return ['KY', 'TU_CHOI', 'YEU_CAU_SUA', 'HUY_TRINH_KY'].includes(e.hanh_dong)
-    ? e.chi_tiet
-    : '';
 }
 
 /** Mã hồ sơ trên đường dẫn phải là số nguyên dương; sai dạng thì báo không tìm thấy, không gọi API. */
