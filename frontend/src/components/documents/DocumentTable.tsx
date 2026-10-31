@@ -151,32 +151,13 @@ const renderReplacementBadgeGroup = (
 };
 
 /**
- * Định dạng mốc thời gian hiển thị (Đi / Đến / Lưu).
- * Nếu trường ngày có giờ là 00:00:00 (do nhập bằng input date không kèm giờ)
- * và có fallbackDateStr (created_at), hệ thống sẽ mượn giờ:phút:giây từ created_at
- * để bảo đảm không hiển thị "00:00:00" cho người dùng.
+ * Định dạng mốc thời gian hiển thị (Đi / Đến).
+ * Chỉ giữ lại Ngày / Tháng / Năm (dd/MM/yyyy) theo đúng chuẩn hành chính,
+ * không hiển thị giờ:phút:giây để giao diện bảng và thẻ card gọn gàng, tránh chật bảng.
  */
 const formatDocumentEventTime = (primaryDateStr?: string | null, fallbackDateStr?: string | null): string => {
   if (!primaryDateStr && !fallbackDateStr) return '—';
-  const targetStr = primaryDateStr || fallbackDateStr!;
-  const d = new Date(targetStr);
-  if (isNaN(d.getTime())) return '—';
-
-  if (d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && fallbackDateStr) {
-    const fallbackD = new Date(fallbackDateStr);
-    if (!isNaN(fallbackD.getTime()) && (fallbackD.getHours() !== 0 || fallbackD.getMinutes() !== 0 || fallbackD.getSeconds() !== 0)) {
-      d.setHours(fallbackD.getHours(), fallbackD.getMinutes(), fallbackD.getSeconds());
-    }
-  }
-
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  const seconds = String(d.getSeconds()).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-
-  return `${hours}:${minutes}:${seconds} ${day}/${month}/${year}`;
+  return formatDate(primaryDateStr || fallbackDateStr);
 };
 
 export const DocumentTable: React.FC<DocumentTableProps> = ({
