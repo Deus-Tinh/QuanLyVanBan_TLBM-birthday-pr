@@ -1391,7 +1391,7 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
               </div>
 
               {/* Danh mục hồ sơ */}
-              <div className="col-span-12 sm:col-span-4">
+              <div className="col-span-12 sm:col-span-4 min-w-0">
                 <label className="block text-xs font-semibold text-secondary mb-1.5 flex items-center justify-between">
                   <span>{t('documents_ui.formModal.dossierCatalog') || 'Danh mục hồ sơ'} <span className="text-rose-500 font-bold">*</span></span>
                   {form.loai !== 'DEN' && (
@@ -1425,19 +1425,22 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                         ten_loai_van_ban: '', // Khóa nghiệp vụ: Reset loại văn bản để bắt buộc chọn lại theo hồ sơ mới
                       });
                     }}
-                    className="w-full text-sm bg-surface border border-border-subtle rounded-xl px-3 py-2 text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-fast"
+                    className="w-full max-w-full text-sm bg-surface border border-border-subtle rounded-xl px-3 py-2 text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-fast truncate"
                     required
                   >
                     <option value="">{t('documents_ui.formModal.dossierSelectPlaceholder') || '-- Chọn danh mục hồ sơ nội bộ --'}</option>
                     {dynamicFolders.map((f) => {
                       const matched = dynamicRecordDossiers.find((d) => d.ten_ho_so === f);
-                      const label = matched?.so_ky_hieu ? `[${matched.so_ky_hieu}] ${f}` : f;
+                      const fullLabel = matched?.so_ky_hieu ? `[${matched.so_ky_hieu}] ${f}` : f;
+                      const displayLabel = fullLabel.length > 42 ? `${fullLabel.slice(0, 40)}...` : fullLabel;
                       return (
-                        <option key={f} value={f}>{label}</option>
+                        <option key={f} value={f} title={fullLabel}>{displayLabel}</option>
                       );
                     })}
                     {form.danh_muc_ho_so && !dynamicFolders.includes(form.danh_muc_ho_so) && (
-                      <option value={form.danh_muc_ho_so}>{form.danh_muc_ho_so}</option>
+                      <option value={form.danh_muc_ho_so} title={form.danh_muc_ho_so}>
+                        {form.danh_muc_ho_so.length > 42 ? `${form.danh_muc_ho_so.slice(0, 40)}...` : form.danh_muc_ho_so}
+                      </option>
                     )}
                   </select>
                 )}
