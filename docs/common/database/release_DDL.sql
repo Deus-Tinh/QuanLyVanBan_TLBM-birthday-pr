@@ -1,4 +1,12 @@
 -- =====================================================================
+-- THAY ĐỔI CẤP QUYỀN XUẤT DANH BẠ PHÒNG BAN CHO TRƯỞNG PHÒNG VÀ BAN GIÁM ĐỐC (Nhóm 7; đánh dấu [EXDV] tại vị trí)
+-- Căn cứ: quyết định nhóm trưởng (30/10/2026): xuất danh bạ do admin, Tổng giám đốc và các chức vụ cao cấp thực hiện,
+--   cùng mức với export_cbnv (TP, BGD, ADMIN).
+--   Gán export_donvi cho nhóm TP và BGD (ADMIN đã có qua CROSS JOIN): thêm 2 lượt phân quyền.
+--   Migration authorization 0012_grant_export_donvi_tp_bgd bổ sung cho DB đã seed từ trước.
+-- Quy mô sau [EXDV] (cộng sau [HLVB]): giữ 80 quyền thao tác; 209 -> 211 lượt phân quyền.
+-- =====================================================================
+-- =====================================================================
 -- THAY ĐỔI QUYỀN ĐỔI HIỆU LỰC VĂN BẢN ĐẾN/ĐI (Nhóm 7; đánh dấu [HLVB] tại vị trí)
 -- Căn cứ: nghiệp vụ văn bản đến/đi (đổi hiệu lực văn bản là thao tác riêng, không gộp vào change_vanbanden/change_vanbandi).
 --   Thêm 2 quyền: change_hieu_luc_vanbanden, change_hieu_luc_vanbandi; gán cho nhóm ADMIN (CROSS JOIN sẵn có) và VT.
@@ -2634,6 +2642,7 @@ WHERE
     g.ma_nhom_quyen = 'BGD'
     AND p.codename IN (
         'view_donvi',
+        'export_donvi',
         'view_chucvu',
         'view_loaitailieubieumau',
         'view_list_cbnv',
@@ -2674,6 +2683,7 @@ WHERE
     g.ma_nhom_quyen = 'TP'
     AND p.codename IN (
         'view_donvi',
+        'export_donvi',
         'view_chucvu',
         'view_loaitailieubieumau',
         'view_list_cbnv',
