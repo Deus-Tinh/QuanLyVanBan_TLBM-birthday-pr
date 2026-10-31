@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { useTranslation } from '@i18n/translate';
-import { t } from '@i18n/translate';
-import { ApiError, toMessage } from '../api/client';
+import React, { useEffect, useMemo, useState } from 'react';
+import { t, useTranslation } from '@i18n/translate';
+import { API_BASE_URL, ApiError, authHeaders, toMessage } from '../api/client';
 import { createTask, getTask, updateTask } from '../api/tasks';
 import { Attachment, TaskDetail, TaskFormValues } from '../types/task';
 import DateInput, { todayIso } from './DateInput';
@@ -48,15 +47,25 @@ interface TaskFormModalProps {
   onSaved: (task: TaskDetail, mode: 'create' | 'edit') => void;
 }
 
-// TODO: Goi API phong/ban that khi app organizations ve nhanh 6_tasks (hien chua co endpoint).
-// Id phải khớp organizations_donvi.id trong CSDL chung.
-const DON_VI_TAM = [
-  { id: 1, ten: 'Ban Giám đốc' },
-  { id: 2, ten: 'Phòng Hành chính - Tổng hợp' },
-  { id: 3, ten: 'Phòng Kế hoạch - Tài chính' },
-  { id: 4, ten: 'Phòng Công nghệ thông tin' },
-  { id: 5, ten: 'Phòng Đào tạo' },
-];
+interface DonViOption {
+  id: number;
+  ten: string;
+}
+
+async function fetchAllDonVi(): Promise<DonViOption[]> {
+  const res = await fetch(`${API_BASE_URL}/organizations/units/?all=true`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const items: Array<{ id: number; ten?: string; name?: string }> = Array.isArray(data)
+    ? data
+    : data?.results || [];
+  return items
+    .map((item) => ({ id: item.id, ten: (item.ten || item.name || '').trim() }))
+    .filter((item) => item.ten)
+    .sort((a, b) => a.ten.localeCompare(b.ten, 'vi'));
+}
 
 function emptyValues(): TaskFormValues {
   return {
@@ -198,6 +207,18 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
   const [lockedReason, setLockedReason] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [donViList, setDonViList] = useState<DonViOption[]>([]);
+  const [donViSearch, setDonViSearch] = useState('');
+
+  useEffect(() => {
+    fetchAllDonVi().then(setDonViList).catch(() => {});
+  }, []);
+
+  const filteredDonVi = useMemo(() => {
+    if (!donViSearch.trim()) return donViList;
+    const q = donViSearch.toLowerCase();
+    return donViList.filter((d) => d.ten.toLowerCase().includes(q));
+  }, [donViList, donViSearch]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -220,7 +241,7 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
         setExistingFiles(task.attachments);
         if (!task.permissions.canEdit) {
           setLockedReason(
-            tr('work.taskForm.lockedReason', { status: task.statusLabel }),
+            t('work.taskForm.lockedReason', { status: task.statusLabel }),
           );
         }
       })
@@ -538,45 +559,78 @@ export default function TaskFormModal({ open, taskId, onClose, onSaved }: TaskFo
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '6px',
-                    padding: '10px 12px',
                     borderRadius: 'var(--radius-md)',
                     border: '1px solid var(--border-subtle)',
                     background: 'var(--bg-surface)',
-                    maxHeight: '160px',
-                    overflowY: 'auto',
                   }}
                 >
-                  {DON_VI_TAM.map((donVi) => {
-                    const checked = values.donViIds.includes(donVi.id);
-                    return (
-                      <label
-                        key={donVi.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          fontSize: '0.85rem',
-                          color: 'var(--text-main)',
-                          cursor: disabled ? 'not-allowed' : 'pointer',
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={disabled}
-                          onChange={(event) =>
-                            update(
-                              'donViIds',
-                              event.target.checked
-                                ? [...values.donViIds, donVi.id]
-                                : values.donViIds.filter((id) => id !== donVi.id),
-                            )
-                          }
-                        />
-                        {donVi.ten}
-                      </label>
-                    );
-                  })}
+                  <input
+                    type="text"
+                    placeholder={tr('work.taskForm.donViSearchPlaceholder')}
+                    value={donViSearch}
+                    onChange={(e) => setDonViSearch(e.target.value)}
+                    style={{
+                      padding: '8px 12px',
+                      border: 'none',
+                      borderBottom: '1px solid var(--border-subtle)',
+                      background: 'transparent',
+                      fontSize: '0.85rem',
+                      outline: 'none',
+                      color: 'var(--text-main)',
+                    }}
+                  />
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      padding: '10px 12px',
+                      maxHeight: '200px',
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {donViList.length === 0 && (
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                        {tr('work.taskForm.donViLoading')}
+                      </span>
+                    )}
+                    {filteredDonVi.map((donVi) => {
+                      const checked = values.donViIds.includes(donVi.id);
+                      return (
+                        <label
+                          key={donVi.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '0.85rem',
+                            color: 'var(--text-main)',
+                            cursor: disabled ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={disabled}
+                            onChange={(event) =>
+                              update(
+                                'donViIds',
+                                event.target.checked
+                                  ? [...values.donViIds, donVi.id]
+                                  : values.donViIds.filter((id) => id !== donVi.id),
+                              )
+                            }
+                          />
+                          {donVi.ten}
+                        </label>
+                      );
+                    })}
+                    {donViList.length > 0 && filteredDonVi.length === 0 && (
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                        {tr('work.taskForm.donViNoResults')}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </Field>
 

@@ -64,8 +64,8 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
     onSearch({ ...draft, search: draft.search.trim() });
   };
 
-  // Ô tìm kiếm tự áp dụng sau khi ngừng gõ. Chỉ theo dõi riêng từ khóa — chọn ngày/trạng thái
-  // giữa chừng sẽ không bị auto-fire. Lần render đầu bỏ qua để không gọi API thừa khi mở trang.
+  // Ô tìm kiếm tự áp dụng sau khi ngừng gõ; dropdown tình trạng áp dụng ngay khi chọn.
+  // Lần render đầu bỏ qua để không gọi API thừa khi mở trang.
   const firstRender = useRef(true);
   useEffect(() => {
     if (firstRender.current) {
@@ -74,9 +74,18 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
     }
     const timer = window.setTimeout(submit, SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-    // submit đóng gói draft hiện tại; effect chạy lại mỗi khi từ khóa đổi nên không bị cũ.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.search]);
+
+  const statusFirstRender = useRef(true);
+  useEffect(() => {
+    if (statusFirstRender.current) {
+      statusFirstRender.current = false;
+      return;
+    }
+    submit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.status]);
 
   const reset = () => {
     const empty: FilterDraft = { search: '', status: '', createdFrom: '', createdTo: '' };

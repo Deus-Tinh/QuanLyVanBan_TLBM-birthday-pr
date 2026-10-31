@@ -72,7 +72,7 @@ def _save_employee_import_upload(upload, job_id):
     file_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         try:
-            file_path.parent.chmod(0o700)
+            file_path.parent.chmod(0o755)
         except OSError:
             # Windows applies ACLs; production uses the owning service account on a private path.
             pass
@@ -80,7 +80,7 @@ def _save_employee_import_upload(upload, job_id):
             for chunk in upload.chunks():
                 destination.write(chunk)
         try:
-            file_path.chmod(0o600)
+            file_path.chmod(0o644)
         except OSError:
             pass
         return relative_path
