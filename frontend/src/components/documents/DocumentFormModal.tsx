@@ -361,6 +361,7 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
 
   // Danh mục hồ sơ & loại văn bản động nạp từ Nhóm 3 (app records)
   const [dynamicFolders, setDynamicFolders] = useState<string[]>([]);
+  const [dynamicRecordDossiers, setDynamicRecordDossiers] = useState<Array<{ id: number | string; ten_ho_so: string; so_ky_hieu?: string }>>([]);
   const [dynamicFolderDocTypesMap, setDynamicFolderDocTypesMap] = useState<Record<string, string[]>>({});
 
   // Gợi ý và tìm kiếm văn bản thay thế (hỗ trợ chọn nhiều văn bản cùng hệ & cùng phạm vi)
@@ -563,11 +564,30 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
             || [];
 
           if (Array.isArray(rawDossiers) && rawDossiers.length > 0 && !cancelled) {
-            const folderNames = rawDossiers
-              .map((d) => d?.ten_ho_so?.trim())
-              .filter((name): name is string => Boolean(name));
+            const parsedDossiers: Array<{ id: number | string; ten_ho_so: string; so_ky_hieu?: string }> = [];
+            const folderNames: string[] = [];
+            rawDossiers.forEach((d) => {
+              const rawD = d as { id?: number | string; ten_ho_so?: string; so_ky_hieu?: string };
+              const name = rawD?.ten_ho_so?.trim();
+              if (name) {
+                folderNames.push(name);
+                parsedDossiers.push({
+                  id: rawD.id ?? '',
+                  ten_ho_so: name,
+                  so_ky_hieu: rawD.so_ky_hieu,
+                });
+              }
+            });
             if (folderNames.length > 0) {
+              const hscIdx = folderNames.findIndex((f) => f.toLowerCase() === 'hồ sơ chung');
+              if (hscIdx > 0) {
+                const [hsc] = folderNames.splice(hscIdx, 1);
+                folderNames.unshift(hsc);
+                const [hscD] = parsedDossiers.splice(hscIdx, 1);
+                parsedDossiers.unshift(hscD);
+              }
               setDynamicFolders(folderNames);
+              setDynamicRecordDossiers(parsedDossiers);
             }
           }
         } catch {
@@ -1409,15 +1429,14 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                     required
                   >
                     <option value="">{t('documents_ui.formModal.dossierSelectPlaceholder') || '-- Chọn danh mục hồ sơ nội bộ --'}</option>
-                    {(() => {
-                      const baseList = dynamicFolders.length > 0
-                        ? Array.from(new Set([...dynamicFolders, ...Object.keys(DEFAULT_INTERNAL_FOLDERS)]))
-                        : Object.keys(DEFAULT_INTERNAL_FOLDERS);
-                      return baseList.map(f => (
-                        <option key={f} value={f}>{f}</option>
-                      ));
-                    })()}
-                    {form.danh_muc_ho_so && !dynamicFolders.includes(form.danh_muc_ho_so) && !DEFAULT_INTERNAL_FOLDERS[form.danh_muc_ho_so] && (
+                    {dynamicFolders.map((f) => {
+                      const matched = dynamicRecordDossiers.find((d) => d.ten_ho_so === f);
+                      const label = matched?.so_ky_hieu ? `[${matched.so_ky_hieu}] ${f}` : f;
+                      return (
+                        <option key={f} value={f}>{label}</option>
+                      );
+                    })}
+                    {form.danh_muc_ho_so && !dynamicFolders.includes(form.danh_muc_ho_so) && (
                       <option value={form.danh_muc_ho_so}>{form.danh_muc_ho_so}</option>
                     )}
                   </select>
