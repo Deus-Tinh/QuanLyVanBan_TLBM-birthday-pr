@@ -6,7 +6,21 @@
     "role": "Vai trò hệ thống",
     "department": "Đơn vị công tác",
     "email": "Email liên hệ",
-    "sampleDept": "Đơn vị / Phòng ban công tác"
+    "sampleDept": "Đơn vị / Phòng ban công tác",
+    "roles": {
+      "admin": "Quản trị viên",
+      "administrator": "Quản trị viên",
+      "systemAdmin": "Quản trị hệ thống",
+      "specialist": "Chuyên viên",
+      "head": "Trưởng phòng",
+      "deputyHead": "Phó phòng",
+      "archivist": "Văn thư",
+      "director": "Giám đốc",
+      "board": "Ban Giám đốc",
+      "auditor": "Kiểm toán viên",
+      "assistant": "Trợ lý TGĐ",
+      "staff": "Nhân viên"
+    }
   },
   "passwordChange": {
     "title": "Thiết Lập Mật Khẩu Mới",
@@ -34,7 +48,8 @@
     "strengthWeak": "Yếu",
     "strengthFair": "Trung bình",
     "strengthGood": "Khá",
-    "strengthStrong": "Rất mạnh"
+    "strengthStrong": "Rất mạnh",
+    "helpHotline": "Cần trợ giúp hoặc quên mật khẩu? Vui lòng liên hệ quản trị viên qua hotline nội bộ hoặc hỏi nhanh qua Trợ lý AI."
   },
   "pages": {
     "profile": {

@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 
 from django.utils import timezone
@@ -9,8 +10,11 @@ from rest_framework.response import Response
 from accounts.selectors import nhan_vien_sinh_ngay
 from document_templates.selectors import tai_lieu_hieu_luc_xem_duoc
 from documents.selectors import tep_dinh_kem_hien_hanh, van_ban_xem_duoc
+from signing.selectors import tong_quan_dashboard
 from work.models import TaskStatus
 from work.selectors import cong_viec_xem_duoc
+
+logger = logging.getLogger(__name__)
 
 RECENT_LIMIT = 5
 ATTACHMENT_TYPES = {
@@ -141,6 +145,35 @@ def overview_view(request):
     )
     tasks = _tasks(request.user, today)
     resources = _resources(request.user)
+    signing_pending = 0
+    recent_signing = []
+    try:
+        signing_overview = tong_quan_dashboard(request.user, gioi_han=RECENT_LIMIT)
+        signing_pending = signing_overview.get("so_cho_ky", 0)
+        for item in signing_overview.get("gan_day", []):
+            dt_val = item.get("ngay_trinh", "")
+            formatted_date = ""
+            if dt_val:
+                try:
+                    formatted_date = timezone.datetime.fromisoformat(dt_val).strftime("%d/%m/%Y")
+                except Exception:
+                    formatted_date = str(dt_val)[:10]
+            recent_signing.append({
+                **item,
+                "code": f"TK-{item['id']:03d}",
+                "ma_trinh_ky": f"TK-{item['id']:03d}",
+                "title": item.get("tieu_de", ""),
+                "submitter": item.get("nguoi_trinh", ""),
+                "date": formatted_date,
+                "ngay_gui": formatted_date,
+                "status": item.get("trang_thai", ""),
+                "statusLabel": item.get("nhan_trang_thai", ""),
+                "trang_thai_display": item.get("nhan_trang_thai", ""),
+            })
+    except Exception as exc:
+        logger.warning("Lỗi tích hợp selector trình ký tong_quan_dashboard: %s", exc)
+        signing_pending = 0
+        recent_signing = []
     tasks_pending = len([t for t in tasks if t["status"] in ("processing", "pending", "overdue")])
     # Lịch họp lấy từ module Nhóm 7 sau khi được tích hợp vào staging.
     today_meetings = []
@@ -162,11 +195,13 @@ def overview_view(request):
         "incoming_total": incoming_total,
         "outgoing_total": outgoing_total,
         "tasks_pending": tasks_pending,
+        "signing_pending": signing_pending,
     }
     kpis = {
         "incomingCount": incoming_total,
         "outgoingCount": outgoing_total,
         "tasksCount": tasks_pending,
+        "signingCount": signing_pending,
     }
 
     return Response(
@@ -177,12 +212,15 @@ def overview_view(request):
             "recentOutgoing": recent_outgoing,
             "tasks": tasks,
             "resources": resources,
+            "recentSigning": recent_signing,
+            "signingCount": signing_pending,
             "meetingRooms": today_meetings,
             "birthdays": birthdays_list,
             # Tương thích backward
             "stats": stats,
             "recent_incoming": recent_incoming,
             "recent_outgoing": recent_outgoing,
+            "recent_signing": recent_signing,
             "today_meetings": today_meetings,
             "birthdays_by_day": {"today": by_day(today_users), "tomorrow": by_day(tomorrow_users)},
         },

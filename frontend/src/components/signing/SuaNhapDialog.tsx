@@ -1,4 +1,4 @@
-/** Sửa hồ sơ nháp (người tạo, trước khi gửi): hạn chót, ghi chú, số hiệu/trích yếu khi văn bản nhập tay, thay tệp PDF. */
+/** Sửa hồ sơ nháp (người tạo, trước khi gửi): hạn chót, ghi chú, số hiệu tham chiếu/trích yếu, thay PDF dự thảo chưa vào sổ. */
 import { useState } from 'react';
 import { Button } from '@components/common';
 import { HopThoai, OChonTep, ThongBao, TruongNhap } from '@components/signing/ChungUI';
@@ -20,7 +20,7 @@ export default function SuaNhapDialog({ hoSo, onDong, onXong }: {
   const { t, loi } = useSigningT();
   const [hanChot, setHanChot] = useState(sangGioDiaPhuong(hoSo.han_chot));
   const [ghiChu, setGhiChu] = useState(hoSo.ghi_chu ?? '');
-  // Văn bản trình ký nhập tay (không gắn văn bản đi) thì sửa được số hiệu, trích yếu
+  // PDF dự thảo chưa vào sổ (không gắn bản ghi văn bản đi) thì sửa được số hiệu tham chiếu, trích yếu.
   const nhapTay = hoSo.van_ban_id == null;
   const [soHieu, setSoHieu] = useState(hoSo.so_hieu_van_ban ?? '');
   const [trichYeu, setTrichYeu] = useState(hoSo.trich_yeu_van_ban ?? '');

@@ -139,7 +139,6 @@ class SigningProcessStepSigner(models.Model):
     # Chỉ dùng khi cấu hình theo chức vụ; rỗng khi cấu hình theo tài khoản (#80 Phase 7)
     pham_vi_chuc_vu = models.CharField(max_length=20, choices=enums.PhamViChucVu.choices, null=True, blank=True)
     vai_tro_ky = models.CharField(max_length=20, choices=enums.VaiTroKy.choices, db_default="KY_CHINH", default=enums.VaiTroKy.KY_CHINH)
-    chan_ky_chinh = models.BooleanField(db_default=True, default=True)
     thu_tu = models.PositiveSmallIntegerField()
     created_at = models.DateTimeField(auto_now_add=True, db_default=DB_NOW)
 
@@ -155,8 +154,8 @@ class SigningProcessStepSigner(models.Model):
 
 
 class SigningRequest(models.Model):
-    # Văn bản trình ký: gắn văn bản đi (document_type, van_ban_id) hoặc văn bản khác nhập tay (số hiệu, trích yếu);
-    # tệp PDF trình ký luôn tải lên riêng (#274).
+    # Văn bản trình ký: gắn văn bản đi đã đăng ký hoặc PDF dự thảo chưa vào sổ; hồ sơ có id tự cấp.
+    # PDF đã chọn được sao chép vào kho Trình ký để chụp nguyên bản tài liệu của lượt trình.
     document_type = models.CharField(max_length=20, choices=enums.LoaiVanBan.choices, null=True, blank=True)
     van_ban_id = models.BigIntegerField(db_column="document_id", null=True, blank=True)
     so_hieu_van_ban = models.CharField(max_length=100, blank=True, db_default="", default="")
@@ -202,6 +201,11 @@ class SigningRequest(models.Model):
                 condition=(Q(document_type__isnull=False) & Q(van_ban_id__isnull=False))
                 | (Q(document_type__isnull=True) & Q(van_ban_id__isnull=True) & ~Q(trich_yeu_van_ban="")),
                 name="chk_signing_request_van_ban",
+            ),
+            models.UniqueConstraint(
+                fields=["document_type", "van_ban_id"],
+                condition=Q(trang_thai=enums.TrangThaiYeuCau.HOAN_THANH, van_ban_id__isnull=False),
+                name="uq_signing_completed_doc",
             ),
         ]
 
@@ -283,7 +287,6 @@ class SigningRequestStepSigner(models.Model):
     ten_nguoi_ky = models.CharField(max_length=255)
     ten_chuc_vu = models.CharField(max_length=255, null=True, blank=True)
     vai_tro_ky = models.CharField(max_length=20, choices=enums.VaiTroKy.choices)
-    chan_ky_chinh = models.BooleanField(db_default=True, default=True)
     trang_thai = models.CharField(
         max_length=20, choices=enums.TrangThaiNguoiKy.choices, db_default="CHO_KY", default=enums.TrangThaiNguoiKy.CHO_KY
     )
@@ -295,9 +298,6 @@ class SigningRequestStepSigner(models.Model):
     chu_ky_hien_hanh = models.ForeignKey(
         "SigningSignature", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
-    uy_quyen_tu = models.ForeignKey(User, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
-    ly_do_uy_quyen = models.TextField(blank=True, db_default="", default="")
-    ngay_uy_quyen = models.DateTimeField(null=True, blank=True)
     trang_ky = models.PositiveIntegerField(null=True, blank=True)
     toa_do_x = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
     toa_do_y = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
@@ -310,10 +310,6 @@ class SigningRequestStepSigner(models.Model):
         db_table = "signing_request_step_signer"
         constraints = [
             models.UniqueConstraint(fields=["buoc_ky", "nguoi_ky"], name="uq_signing_request_step_signer_nguoi_ky"),
-            models.CheckConstraint(
-                condition=Q(uy_quyen_tu__isnull=True) | ~Q(ly_do_uy_quyen=""),
-                name="chk_signing_signer_ly_do_uy_quyen",
-            ),
         ]
 
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLanguage, t } from '@i18n/translate';
-import apiClient, { ApiError } from './apiClient';
+import apiClient, { ApiError, downloadBlob } from './apiClient';
 
 describe('API response errors', () => {
   beforeEach(() => {
@@ -71,5 +71,87 @@ describe('API response errors', () => {
     })));
 
     await expect(apiClient('/api/preview/')).resolves.toBe('<html>Preview</html>');
+  });
+});
+
+describe('downloadBlob', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setLanguage('vi');
+    window.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+    window.URL.revokeObjectURL = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('ưu tiên defaultFilename thay vì bị ghi đè bởi Content-Disposition bị mã hóa', async () => {
+    const mockBlob = new Blob(['pdf-data'], { type: 'application/pdf' });
+    const appendSpy = vi.spyOn(document.body, 'appendChild');
+    let capturedFilename = '';
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({
+        'Content-Disposition': 'attachment; filename="3D=22ITC_-_Django.pdf=22"',
+      }),
+      blob: vi.fn().mockResolvedValue(mockBlob),
+    }));
+
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
+      const el = originalCreateElement(tagName);
+      if (tagName === 'a') {
+        const origSetAttribute = el.setAttribute.bind(el);
+        el.setAttribute = (name: string, value: string) => {
+          if (name === 'download') {
+            capturedFilename = value;
+          }
+          return origSetAttribute(name, value);
+        };
+        el.click = vi.fn();
+      }
+      return el;
+    });
+
+    await downloadBlob('/api/documents/1/download/', 'ITC - Đồ án - Tổng quan.pdf');
+
+    expect(capturedFilename).toBe('ITC - Đồ án - Tổng quan.pdf');
+    expect(appendSpy).toHaveBeenCalled();
+  });
+
+  it('fallback sang Content-Disposition khi không truyền defaultFilename', async () => {
+    const mockBlob = new Blob(['pdf-data'], { type: 'application/pdf' });
+    let capturedFilename = '';
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({
+        'Content-Disposition': 'attachment; filename="tailieu_goc.pdf"',
+      }),
+      blob: vi.fn().mockResolvedValue(mockBlob),
+    }));
+
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
+      const el = originalCreateElement(tagName);
+      if (tagName === 'a') {
+        const origSetAttribute = el.setAttribute.bind(el);
+        el.setAttribute = (name: string, value: string) => {
+          if (name === 'download') {
+            capturedFilename = value;
+          }
+          return origSetAttribute(name, value);
+        };
+        el.click = vi.fn();
+      }
+      return el;
+    });
+
+    await downloadBlob('/api/documents/1/download/');
+
+    expect(capturedFilename).toBe('tailieu_goc.pdf');
   });
 });

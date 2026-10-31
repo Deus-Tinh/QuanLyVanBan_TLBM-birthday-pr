@@ -16,6 +16,7 @@ import { Toast, ToastNotification } from '@components/resources/Toast';
 import { useTranslation } from '@i18n/translate';
 import { apiClient } from '@lib/apiClient';
 import { authService } from '@lib/authService';
+import { usePermissions } from '@lib/permissions';
 import { computeEffectiveStatus } from '@lib/resourceValidity';
 
 const STORAGE_KEY = 'tlbm_resources_filter_state';
@@ -638,9 +639,34 @@ export default function ResourceManagementPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Quyền hạn Admin
+  // Phân quyền người dùng (RBAC contract Issue #21)
   const currentSession = authService.getSession();
-  const isAdmin = currentSession?.role === 'admin' || currentSession?.username === 'admin';
+  const isSessionAdmin = currentSession?.role === 'admin' || currentSession?.username === 'admin';
+  const { can, isSuperuser } = usePermissions();
+  const canAdd = isSuperuser || isSessionAdmin || can('add_tailieu');
+  const canManageCategory = isSuperuser || isSessionAdmin || can('add_loaitailieubieumau') || can('change_loaitailieubieumau') || can('delete_loaitailieubieumau');
+  const canEditAny = isSuperuser || isSessionAdmin || can('change_tailieu');
+  const canDeleteAny = isSuperuser || isSessionAdmin || can('delete_tailieu');
+
+  const canEditItem = useCallback((item: ResourceItem) => {
+    if (canEditAny) return true;
+    const sess = authService.getSession();
+    if (!sess) return false;
+    return Boolean(
+      (item.nguoi_tao_name && sess.fullName && item.nguoi_tao_name === sess.fullName) ||
+      (item.nguoi_tao_name && sess.username && item.nguoi_tao_name === sess.username)
+    );
+  }, [canEditAny]);
+
+  const canDeleteItem = useCallback((item: ResourceItem) => {
+    if (canDeleteAny) return true;
+    const sess = authService.getSession();
+    if (!sess) return false;
+    return Boolean(
+      (item.nguoi_tao_name && sess.fullName && item.nguoi_tao_name === sess.fullName) ||
+      (item.nguoi_tao_name && sess.username && item.nguoi_tao_name === sess.username)
+    );
+  }, [canDeleteAny]);
 
 
   // Toast thông báo nổi trên cùng (z-[999999] trên tất cả modal và màn đen)
@@ -669,7 +695,7 @@ export default function ResourceManagementPage() {
     });
   };
 
-  // Danh sách năm trích xuất từ dữ liệu thực tế
+  // Danh sách năm trích xuất từ dữ liệu thực tế kết hợp sinh động năm hiện tại
   const availableYears = useMemo(() => {
     const yearsSet = new Set<string>();
     documents.forEach((d) => {
@@ -677,9 +703,11 @@ export default function ResourceManagementPage() {
         yearsSet.add(d.ngay_dang.substring(0, 4));
       }
     });
-    yearsSet.add('2026');
-    yearsSet.add('2025');
-    yearsSet.add('2024');
+    // Luôn tự động sinh ra năm hiện tại và 3 năm liền kề trước đó
+    const currentYear = new Date().getFullYear();
+    for (let y = currentYear; y >= currentYear - 3; y--) {
+      yearsSet.add(String(y));
+    }
     return Array.from(yearsSet).sort().reverse();
   }, [documents]);
 
@@ -977,8 +1005,8 @@ export default function ResourceManagementPage() {
 
   // Hành động Mở Modal Thêm mới
   const handleAddNew = () => {
-    if (!isAdmin) {
-      showToast(t('resourceManagement.adminOnlyAddDocument'), 'warning');
+    if (!canAdd) {
+      showToast(t('roles.messages.permissionDenied'), 'warning');
       return;
     }
     if (categories.length === 0) {
@@ -993,12 +1021,20 @@ export default function ResourceManagementPage() {
 
   // Hành động Mở Modal Sửa
   const handleEdit = (item: ResourceItem) => {
+    if (!canEditItem(item)) {
+      showToast(t('roles.messages.permissionDenied'), 'warning');
+      return;
+    }
     setFormInitialData(item);
     setIsFormOpen(true);
   };
 
   // Hành động Mở Modal Xóa tài liệu
   const handleDelete = (item: ResourceItem) => {
+    if (!canDeleteItem(item)) {
+      showToast(t('roles.messages.permissionDenied'), 'warning');
+      return;
+    }
     setDeleteItem(item);
     setIsDeleteOpen(true);
   };
@@ -1103,9 +1139,21 @@ export default function ResourceManagementPage() {
       // Đồng bộ ngầm với server sau khi cập nhật local state và thông báo cho các tab/client khác
       await fetchResources(true, true);
       notifyMutation();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Lỗi khi lưu tài liệu lên server:', error);
-      showToast('Không thể lưu tài liệu lên hệ thống máy chủ', 'danger', 'Lỗi lưu trữ');
+      const err = error as { response?: { data?: Record<string, unknown> | string }; message?: string };
+      const serverMsg =
+        (typeof err?.response?.data === 'object' && err?.response?.data !== null && 'detail' in err.response.data
+          ? String(err.response.data.detail)
+          : null) ||
+        (typeof err?.response?.data === 'string' ? err.response.data : null) ||
+        (err?.response?.data && typeof err?.response?.data === 'object'
+          ? Object.entries(err.response.data)
+              .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+              .join(' | ')
+          : null) ||
+        err?.message;
+      showToast(serverMsg || 'Không thể lưu tài liệu lên hệ thống máy chủ', 'danger', 'Lỗi lưu trữ');
     } finally {
       setIsSubmittingDoc(false);
     }
@@ -1445,31 +1493,32 @@ export default function ResourceManagementPage() {
           </Button>
 
           {/* Nút Quản lý Danh mục (Thao tác cấu hình phụ) */}
-          <Button
-            variant="secondary"
-            size="md"
-            icon="fa-folder-tree"
-            onClick={() => setIsCategoryModalOpen(true)}
-            className="h-9 sm:h-10 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold border-border-subtle shadow-2xs hover:border-primary/50 hover:text-primary transition-all flex-1 sm:flex-initial justify-center"
-            title={t('resourceManagement.categoriesBtn')}
-          >
-            {t('resourceManagement.categoriesBtn')}
-          </Button>
+          {canManageCategory && (
+            <Button
+              variant="secondary"
+              size="md"
+              icon="fa-folder-tree"
+              onClick={() => setIsCategoryModalOpen(true)}
+              className="h-9 sm:h-10 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold border-border-subtle shadow-2xs hover:border-primary/50 hover:text-primary transition-all flex-1 sm:flex-initial justify-center"
+              title={t('resourceManagement.categoriesBtn')}
+            >
+              {t('resourceManagement.categoriesBtn')}
+            </Button>
+          )}
 
-          {/* Nút Thêm mới tài liệu (Thao tác chính nổi bật - Chỉ Admin mới có quyền) */}
-          <Button
-            variant={isAdmin ? "primary" : "secondary"}
-            size="md"
-            icon="fa-plus"
-            onClick={isAdmin ? handleAddNew : undefined}
-            disabled={!isAdmin}
-            className={`h-9 sm:h-10 px-3.5 sm:px-4.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex-1 sm:flex-initial justify-center ${
-              !isAdmin ? 'opacity-60 cursor-not-allowed' : 'shadow-sm hover:shadow-glow'
-            }`}
-            title={isAdmin ? t('resourceManagement.addDocumentBtn') : t('resourceManagement.adminOnlyAddDocument')}
-          >
-            {t('resourceManagement.addDocumentBtn')}
-          </Button>
+          {/* Nút Thêm mới tài liệu (Thao tác chính nổi bật) */}
+          {canAdd && (
+            <Button
+              variant="primary"
+              size="md"
+              icon="fa-plus"
+              onClick={handleAddNew}
+              className="h-9 sm:h-10 px-3.5 sm:px-4.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex-1 sm:flex-initial justify-center shadow-sm hover:shadow-glow"
+              title={t('resourceManagement.addDocumentBtn')}
+            >
+              {t('resourceManagement.addDocumentBtn')}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1711,23 +1760,27 @@ export default function ResourceManagementPage() {
                       })}
                     </div>
 
-                    <div className="my-1.5 border-t border-border-subtle" />
+                    {canManageCategory && (
+                      <>
+                        <div className="my-1.5 border-t border-border-subtle" />
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsCategoryModalOpen(true);
-                        setIsCategoryDropdownOpen(false);
-                      }}
-                      className="w-full px-2.5 py-2 rounded-lg text-left text-xs font-semibold text-primary hover:bg-primary/5 flex items-center justify-between transition-colors cursor-pointer border border-primary/20 hover:border-primary/40 bg-primary/2"
-                      title={t('resourceManagement.openCategoryManagementTooltip')}
-                    >
-                      <span className="flex items-center gap-2 truncate">
-                        <i className="fa-solid fa-folder-tree text-xs text-primary" />
-                        <span className="truncate">{t('resourceManagement.manageCategoriesSettings')}</span>
-                      </span>
-                      <i className="fa-solid fa-arrow-up-right-from-square text-[10px] text-primary/70 shrink-0" />
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCategoryModalOpen(true);
+                            setIsCategoryDropdownOpen(false);
+                          }}
+                          className="w-full px-2.5 py-2 rounded-lg text-left text-xs font-semibold text-primary hover:bg-primary/5 flex items-center justify-between transition-colors cursor-pointer border border-primary/20 hover:border-primary/40 bg-primary/2"
+                          title={t('resourceManagement.openCategoryManagementTooltip')}
+                        >
+                          <span className="flex items-center gap-2 truncate">
+                            <i className="fa-solid fa-folder-tree text-xs text-primary" />
+                            <span className="truncate">{t('resourceManagement.manageCategoriesSettings')}</span>
+                          </span>
+                          <i className="fa-solid fa-arrow-up-right-from-square text-[10px] text-primary/70 shrink-0" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -1992,23 +2045,27 @@ export default function ResourceManagementPage() {
                       })}
                     </div>
 
-                    <div className="my-1.5 border-t border-border-subtle" />
+                    {canManageCategory && (
+                      <>
+                        <div className="my-1.5 border-t border-border-subtle" />
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsCategoryModalOpen(true);
-                        setIsTypeDropdownOpen(false);
-                      }}
-                      className="w-full px-2.5 py-2 rounded-lg text-left text-xs font-semibold text-primary hover:bg-primary/5 flex items-center justify-between transition-colors cursor-pointer border border-primary/20 hover:border-primary/40 bg-primary/2"
-                      title={t('resourceManagement.openCategoryManagementTooltip')}
-                    >
-                      <span className="flex items-center gap-2 truncate">
-                        <i className="fa-solid fa-folder-tree text-xs text-primary" />
-                        <span className="truncate">{t('resourceManagement.manageCategoriesSettings')}</span>
-                      </span>
-                      <i className="fa-solid fa-arrow-up-right-from-square text-[10px] text-primary/70 shrink-0" />
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCategoryModalOpen(true);
+                            setIsTypeDropdownOpen(false);
+                          }}
+                          className="w-full px-2.5 py-2 rounded-lg text-left text-xs font-semibold text-primary hover:bg-primary/5 flex items-center justify-between transition-colors cursor-pointer border border-primary/20 hover:border-primary/40 bg-primary/2"
+                          title={t('resourceManagement.openCategoryManagementTooltip')}
+                        >
+                          <span className="flex items-center gap-2 truncate">
+                            <i className="fa-solid fa-folder-tree text-xs text-primary" />
+                            <span className="truncate">{t('resourceManagement.manageCategoriesSettings')}</span>
+                          </span>
+                          <i className="fa-solid fa-arrow-up-right-from-square text-[10px] text-primary/70 shrink-0" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -2487,8 +2544,10 @@ export default function ResourceManagementPage() {
           setCurrentPage(1);
         }}
         onViewDetail={handleViewDetail}
-        onEdit={isAdmin ? handleEdit : undefined}
-        onDelete={isAdmin ? handleDelete : undefined}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        canEdit={canEditItem}
+        canDelete={canDeleteItem}
         onDownloadFile={handleDownloadFile}
         onClearFilters={hasActiveFilters ? handleClearFilters : undefined}
         onDrillDown={(categoryId, typeId) => {
@@ -2505,11 +2564,11 @@ export default function ResourceManagementPage() {
         onClose={() => setIsDetailOpen(false)}
         item={detailItem}
         onDownloadFile={handleDownloadFile}
-        onEdit={isAdmin ? (item) => {
+        onEdit={detailItem && canEditItem(detailItem) ? (item) => {
           setIsDetailOpen(false);
           handleEdit(item);
         } : undefined}
-        onDelete={isAdmin ? (item) => {
+        onDelete={detailItem && canDeleteItem(detailItem) ? (item) => {
           setIsDetailOpen(false);
           handleDelete(item);
         } : undefined}

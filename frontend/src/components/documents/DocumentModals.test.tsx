@@ -4,7 +4,7 @@ import React from 'react';
 import DocumentDetailModal from './DocumentDetailModal';
 import DocumentViewersModal from './DocumentViewersModal';
 import DocumentFormModal, { InitialDocType } from './DocumentFormModal';
-import apiClient from '@lib/apiClient';
+import apiClient, { apiClientBlob, downloadBlob } from '@lib/apiClient';
 import { setLanguage } from '@i18n/translate';
 
 vi.mock('@lib/apiClient', () => ({
@@ -13,6 +13,8 @@ vi.mock('@lib/apiClient', () => ({
     post: vi.fn(),
     delete: vi.fn(),
   },
+  apiClientBlob: vi.fn(),
+  downloadBlob: vi.fn(),
 }));
 
 describe('DocumentDetailModal', () => {
@@ -65,6 +67,118 @@ describe('DocumentDetailModal', () => {
       expect(screen.getByText('15/CV-BGDDT')).toBeInTheDocument();
       expect(screen.getByText('Hướng dẫn tổ chức thi tuyển sinh')).toBeInTheDocument();
       expect(screen.getByText('huongdan.pdf')).toBeInTheDocument();
+    });
+  });
+
+  it('gọi apiClientBlob và mở tab mới khi bấm nút Xem tệp đính kèm', async () => {
+    const mockDetail = {
+      id: 1,
+      loai: 'DEN',
+      so_hieu: '15/CV-BGDDT',
+      trich_yeu: 'Hướng dẫn tuyển sinh',
+      attachments: [
+        {
+          id: 101,
+          file: '/media/test.pdf',
+          file_name: 'huongdan.pdf',
+          file_size: 204800,
+          uploaded_at: '2026-09-23T08:00:00Z',
+        },
+      ],
+    };
+
+    (apiClient.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockDetail);
+    const mockBlob = new Blob(['pdf-data'], { type: 'application/pdf' });
+    vi.mocked(apiClientBlob).mockResolvedValueOnce(mockBlob);
+    const originalCreateObjectURL = window.URL.createObjectURL;
+    const originalOpen = window.open;
+    window.URL.createObjectURL = vi.fn(() => 'blob:http://test/uuid');
+    window.open = vi.fn();
+
+    render(<DocumentDetailModal isOpen={true} onClose={vi.fn()} documentId={1} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('huongdan.pdf')).toBeInTheDocument();
+    });
+
+    const viewBtn = screen.getByRole('button', { name: /Xem/i });
+    fireEvent.click(viewBtn);
+
+    await waitFor(() => {
+      expect(apiClientBlob).toHaveBeenCalledWith('/media/test.pdf');
+      expect(window.URL.createObjectURL).toHaveBeenCalled();
+      expect(window.open).toHaveBeenCalledWith('blob:http://test/uuid', '_blank');
+    });
+
+    window.URL.createObjectURL = originalCreateObjectURL;
+    window.open = originalOpen;
+  });
+
+  it('tự động gọi downloadBlob khi bấm Xem tệp Word (.docx) để tránh bị tải chuỗi UUID', async () => {
+    const mockDetail = {
+      id: 1,
+      loai: 'DEN',
+      so_hieu: '15/CV-BGDDT',
+      trich_yeu: 'Hướng dẫn tuyển sinh',
+      attachments: [
+        {
+          id: 102,
+          file: '/media/baocao.docx',
+          file_name: 'BaoCao.docx',
+          file_size: 204800,
+          uploaded_at: '2026-09-23T08:00:00Z',
+        },
+      ],
+    };
+
+    (apiClient.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockDetail);
+    vi.mocked(downloadBlob).mockResolvedValueOnce();
+
+    render(<DocumentDetailModal isOpen={true} onClose={vi.fn()} documentId={1} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('BaoCao.docx')).toBeInTheDocument();
+    });
+
+    const viewBtn = screen.getByRole('button', { name: /Xem/i });
+    fireEvent.click(viewBtn);
+
+    await waitFor(() => {
+      expect(downloadBlob).toHaveBeenCalledWith('/media/baocao.docx', 'BaoCao.docx');
+    });
+  });
+
+  it('gọi downloadBlob khi bấm nút Tải về tệp đính kèm', async () => {
+    const mockDetail = {
+      id: 1,
+      loai: 'DEN',
+      so_hieu: '15/CV-BGDDT',
+      trich_yeu: 'Hướng dẫn tuyển sinh',
+      attachments: [
+        {
+          id: 101,
+          file: '/media/test.pdf',
+          file_name: 'huongdan.pdf',
+          file_size: 204800,
+          uploaded_at: '2026-09-23T08:00:00Z',
+        },
+      ],
+    };
+
+    (apiClient.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockDetail);
+    vi.mocked(downloadBlob).mockResolvedValueOnce();
+
+    render(<DocumentDetailModal isOpen={true} onClose={vi.fn()} documentId={1} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('huongdan.pdf')).toBeInTheDocument();
+    });
+
+    const downloadBtn = screen.getByRole('button', { name: /Tải về/i });
+    fireEvent.click(downloadBtn);
+
+    await waitFor(() => {
+      expect(downloadBlob).toHaveBeenCalledWith('/media/test.pdf', 'huongdan.pdf');
     });
   });
 });
@@ -575,6 +689,46 @@ describe('DocumentFormModal', () => {
         setLanguage('vi');
       });
     }
+  });
+
+  it('hiển thị đầy đủ và phân biệt các đơn vị trùng tên bằng tên khối trực thuộc', async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+      if (url.includes('/api/organizations/units/')) {
+        return [
+          { id: 1, ten: 'Phòng Hành chính - Tổng hợp', khoi_ten: 'KHỐI VĂN PHÒNG' },
+          { id: 20, ten: 'Lãnh đạo khối', khoi_ten: 'KHỐI HỖ TRỢ' },
+          { id: 30, ten: 'Lãnh đạo khối', khoi_ten: 'KHỐI KẾ TOÁN' },
+        ];
+      }
+      if (url.includes('/api/accounts/staffs/') && url.includes('department=')) {
+        return [
+          { id: 10, username: 'ld_hotro', ho_ten: 'Nguyễn Văn Lãnh Đạo', don_vi_ten: 'Lãnh đạo khối' },
+        ];
+      }
+      return [];
+    });
+
+    render(<DocumentFormModal open={true} onClose={vi.fn()} />);
+
+    // Mở danh sách đơn vị nhận
+    const selectUnitBtn = await screen.findByText('-- Chọn đơn vị nhận --');
+    fireEvent.click(selectUnitBtn);
+
+    // Kiểm tra hiển thị đủ cả 2 đơn vị trùng tên với tên khối đi kèm
+    await waitFor(() => {
+      expect(screen.getByText('Lãnh đạo khối (KHỐI HỖ TRỢ)')).toBeInTheDocument();
+      expect(screen.getByText('Lãnh đạo khối (KHỐI KẾ TOÁN)')).toBeInTheDocument();
+      expect(screen.getByText('Phòng Hành chính - Tổng hợp')).toBeInTheDocument();
+    });
+
+    // Chọn đơn vị "Lãnh đạo khối (KHỐI HỖ TRỢ)"
+    const duplicateOption = screen.getByText('Lãnh đạo khối (KHỐI HỖ TRỢ)');
+    fireEvent.click(duplicateOption);
+
+    // Xác nhận cán bộ được nạp bằng tên gốc đã chuẩn hóa
+    await waitFor(() => {
+      expect(screen.getByText('Nguyễn Văn Lãnh Đạo')).toBeInTheDocument();
+    });
   });
 });
 

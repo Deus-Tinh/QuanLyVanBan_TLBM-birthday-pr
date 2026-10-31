@@ -138,7 +138,7 @@
       "signedDate": "Signed date:",
       "restrictedBadge": "Restricted",
       "restrictedTooltip": "Restricted document (Confidential)",
-      "openAttachmentTitle": "Click to open attachment in a new tab",
+      "openAttachmentTitle": "Click to view document details and attachments",
       "replaces": "Replaces:",
       "replacedBy": "Replaced by:",
       "attachmentsCount": "{count} attachments",

@@ -14,8 +14,8 @@ Dùng model `documents.VanBanDi` và hàm dùng chung của Nhóm 2 (`documents.
 `mo_ta_van_ban(document_type, van_ban_id)`: số hiệu, trích yếu để ghi vào bằng chứng và trang phê duyệt
 của tệp hoàn tất (Phase 10); không kiểm quyền, đọc lỗi thì trả rỗng để không chặn việc hoàn tất duyệt.
 
-Văn bản trình ký của hồ sơ (#275 mục 3): văn bản đi đã gắn (không bắt buộc) hoặc văn bản khác nhập tay (số hiệu,
-trích yếu lưu trên hồ sơ). `mo_ta_ho_so`, `mo_ta_nhieu_ho_so` trả mô tả theo đúng nguồn của từng hồ sơ.
+Văn bản trình ký của hồ sơ (#275 mục 3): bản ghi văn bản đi đã gắn hoặc PDF dự thảo chưa vào sổ (mã hồ sơ tự cấp,
+số hiệu tham chiếu tùy chọn, trích yếu lưu trên hồ sơ cho đến khi liên kết). `mo_ta_ho_so`, `mo_ta_nhieu_ho_so` trả mô tả theo đúng nguồn.
 """
 
 import logging

@@ -1024,10 +1024,17 @@ class VanBanDiNoiBanHanh(models.Model):
 def document_attachment_path(instance, filename):
     """
     Đường dẫn lưu tệp đính kèm trong DOCUMENT_STORAGE_ROOT:
-    van-ban-den|van-ban-di/YYYY/MM/DD/<uuid>.<ext> (ngày upload). Tên gốc giữ ở cột `name`.
+    van-ban-den|van-ban-di/{noi-bo|han-che}/YYYY/MM/DD/<uuid>.<ext> (ngày upload). Tên gốc giữ ở cột `name`.
     """
     doc = getattr(instance, "document", None)
-    module = "van-ban-di" if getattr(doc, "loai", "DEN") == "DI" else "van-ban-den"
+    base_module = "van-ban-di" if getattr(doc, "loai", "DEN") == "DI" else "van-ban-den"
+    is_han_che = (
+        getattr(doc, "pham_vi", "NOI_BO") == "HAN_CHE"
+        or getattr(doc, "loai", "") == "MAT"
+        or getattr(doc, "document_kind", "") == "vanbanmat"
+    )
+    pv = "han-che" if is_han_che else "noi-bo"
+    module = f"{base_module}/{pv}"
     return build_dated_path(module, filename)
 
 

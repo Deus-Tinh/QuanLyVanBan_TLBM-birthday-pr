@@ -65,7 +65,10 @@
     "markAllRead": "Mark all read",
     "viewAll": "View all",
     "unreadCount": "{count} unread",
-    "emptyConfidential": "No new confidential documents"
+    "emptyConfidential": "No new confidential documents",
+    "signingDefaultTitle": "Signing Document Request",
+    "signingSubmitterPrefix": "Submitter",
+    "signingPendingLabel": "Pending Signature"
   },
   "footer": {
     "group1Notice": "Group 1 currently in active development",

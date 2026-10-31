@@ -83,7 +83,7 @@ class HanXuLyThongBaoTests(KyBase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn(chuoi, mail.outbox[0].body)
         r = self.client_cua(User.objects.get(pk=self.ky3.pk)).get("/api/v1/signing/thong-bao/")
-        tb = next(x for x in r.data if x["loai_thong_bao"] == "CAN_KY")
+        tb = next(x for x in r.data["results"] if x["loai_thong_bao"] == "CAN_KY")
         self.assertEqual(parse_datetime(tb["han_xu_ly"]), han)  # cùng thời điểm, chuỗi giờ +07:00
 
     def test_reminder_and_overdue_show_deadline(self):
@@ -91,7 +91,7 @@ class HanXuLyThongBaoTests(KyBase):
         SigningRequestStep.objects.filter(pk=cap.pk).update(han_xu_ly=timezone.now() + timedelta(hours=2))
         thong_bao.nhac_han()
         tb = SigningNotification.objects.get(trinh_ky_id=self.pk, loai_thong_bao="NHAC_HAN",
-                                             kenh=enums.KenhThongBao.IN_APP)
+                                             nguoi_nhan=self.ky1, kenh=enums.KenhThongBao.IN_APP)
         han = SigningRequestStep.objects.get(pk=cap.pk).han_xu_ly
         self.assertIn(f"Hạn xử lý: {timezone.localtime(han):%d/%m/%Y %H:%M}.", thong_bao.noi_dung(tb)[1])
         # Thông báo không gắn hạn (hoàn tất, hủy...) không ghi dòng hạn
@@ -122,7 +122,7 @@ class MotHoSoDangMoTests(KyBase):
         self.assertEqual((r.status_code, r.data["code"]), (409, "van_ban_da_co_ho_so_dang_mo"))
         self.assertEqual(self.gui(nhap, khoa="gui-nhap-20").status_code, 200)  # chính nháp đó vẫn gửi được
 
-    def test_finished_requests_allow_new_submission(self):
+    def test_cancelled_allows_retry_but_completed_blocks_reuse(self):
         r = self.c.post(f"{BASE}/{self.pk}/huy/", {"ly_do": "Đổi phương án"}, format="json",
                         HTTP_IDEMPOTENCY_KEY="huy-10")
         self.assertEqual(r.status_code, 200, r.data)
@@ -133,7 +133,22 @@ class MotHoSoDangMoTests(KyBase):
         for user in (self.ky1, self.ky2, self.ky3):
             self.assertEqual(self.ky(user).status_code, 200)
         self.assertEqual(SigningRequest.objects.get(pk=self.pk).trang_thai, "HOAN_THANH")
-        self.assertEqual(self.tao_nhap(van_ban_id=10).status_code, 201)  # hồ sơ cũ đã hoàn thành
+        r = self.tao_nhap(van_ban_id=10)
+        self.assertEqual((r.status_code, r.data["code"]), (409, "van_ban_da_co_ho_so_hoan_tat"))
+
+    def test_legacy_draft_cannot_be_sent_after_another_request_completes(self):
+        cu = SigningRequest.objects.get(pk=self.pk)
+        nhap_cu = SigningRequest.objects.create(
+            document_type=cu.document_type, van_ban_id=cu.van_ban_id, quy_trinh=cu.quy_trinh,
+            phien_ban_quy_trinh=cu.phien_ban_quy_trinh, phien_ban_van_ban="1", vi_tri_luu_tep=cu.vi_tri_luu_tep,
+            ma_bam_tai_lieu=cu.ma_bam_tai_lieu, create_by=self.tao,
+        )
+        for user in (self.ky1, self.ky2, self.ky3):
+            self.assertEqual(self.ky(user).status_code, 200)
+
+        r = self.gui(nhap_cu.pk, khoa="gui-nhap-sau-hoan-tat")
+        self.assertEqual((r.status_code, r.data["code"]), (409, "van_ban_da_co_ho_so_hoan_tat"))
+        self.assertEqual(SigningRequest.objects.get(pk=nhap_cu.pk).trang_thai, "NHAP")
 
     def test_resubmit_after_rejection_is_blocked_only_by_another_open_request(self):
         self.assertEqual(self.hanh_dong(self.ky1, "tu-choi", ly_do_tu_choi="Chưa đạt").status_code, 200)
@@ -207,5 +222,41 @@ class RaSoatGiaoDienTests(TrinhKyBase):
     def test_notifications_use_local_timezone(self):
         self.ho_so_da_gui()
         r = self.client_cua(self.ky1).get("/api/v1/signing/thong-bao/")
-        self.assertTrue(r.data)
-        self.assertTrue(all(x["created_at"].endswith("+07:00") for x in r.data))
+        self.assertTrue(r.data["results"])
+        self.assertTrue(all(x["created_at"].endswith("+07:00") for x in r.data["results"]))
+
+
+class ThamSoSoNguyenTests(TrinhKyBase):
+    """Tham số số nguyên chỉ nhận chữ số ASCII 0-9 trong giới hạn bigint; sai trả 400 thay vì lỗi 500."""
+
+    SAI = ("٣", "١٢٣", "１２３", "9223372036854775808", "9" * 40, "9" * 4301)
+
+    def kiem_tra_400(self, url, ten):
+        for gia_tri in self.SAI:
+            with self.subTest(tham_so=ten, gia_tri=gia_tri):
+                r = self.c.get(url, {ten: gia_tri})
+                self.assertEqual((r.status_code, r.data["code"]), (400, "tham_so_khong_hop_le"), r.data)
+
+    def test_loc_danh_sach_ho_so(self):
+        self.kiem_tra_400(f"{BASE}/", "quy_trinh")
+        self.kiem_tra_400(f"{BASE}/", "don_vi_ap_dung")
+
+    def test_tim_kiem_ma_ho_so_khong_loi(self):
+        for gia_tri in ("#٣", "#" + "9" * 40, "#" + "9" * 4301, "#9223372036854775808"):
+            with self.subTest(q=gia_tri):
+                r = self.c.get(f"{BASE}/", {"hop": "toi_gui", "q": gia_tri})
+                self.assertEqual(r.status_code, 200, r.data)
+
+    def test_tep_theo_luot(self):
+        pk = self.tao_nhap().data["id"]
+        self.kiem_tra_400(f"{BASE}/{pk}/tep/", "luot")
+
+    def test_can_bo_theo_chuc_vu(self):
+        from .helpers import cap_quyen
+        cap_quyen(self.tao, "view_trinhky")
+        url = "/api/v1/signing/can-bo-theo-chuc-vu/"
+        self.kiem_tra_400(url, "chuc_vu")
+        for gia_tri in self.SAI:
+            with self.subTest(tham_so="don_vi", gia_tri=gia_tri):
+                r = self.c.get(url, {"chuc_vu": "1", "don_vi": gia_tri})
+                self.assertEqual((r.status_code, r.data["code"]), (400, "tham_so_khong_hop_le"), r.data)

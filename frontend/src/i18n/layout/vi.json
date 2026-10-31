@@ -65,7 +65,10 @@
     "markAllRead": "Đã đọc tất cả",
     "viewAll": "Xem tất cả",
     "unreadCount": "{count} chưa đọc",
-    "emptyConfidential": "Không có văn bản mật mới"
+    "emptyConfidential": "Không có văn bản mật mới",
+    "signingDefaultTitle": "Phiếu trình ký văn bản",
+    "signingSubmitterPrefix": "Người trình",
+    "signingPendingLabel": "Chờ ký"
   },
   "footer": {
     "group1Notice": "Nhóm 1 đang trong quá trình phát triển",

@@ -66,7 +66,36 @@
     "previousYear": "Previous year",
     "nextYear": "Next year",
     "previousDecade": "Previous 12 years",
-    "nextDecade": "Next 12 years"
+    "nextDecade": "Next 12 years",
+    "emailLogs": {
+      "title": "Birthday email log",
+      "description": "The system automatically emails every active employee whose birthday falls on the day, using email, name, position, and department from the employee record.",
+      "filterByStatus": "Filter by status",
+      "allStatuses": "All statuses",
+      "statusPending": "Pending",
+      "statusSending": "Sending",
+      "statusSuccess": "Sent successfully",
+      "statusFailed": "Failed",
+      "statusRetry": "Waiting to retry",
+      "refresh": "Refresh log",
+      "loading": "Loading email log...",
+      "loadError": "Could not load the email log.",
+      "empty": "No email log entries for this month.",
+      "total": "Total records: {count}",
+      "employee": "Employee",
+      "email": "Recipient email",
+      "position": "Position",
+      "department": "Department/unit",
+      "birthdayDate": "Birthday date",
+      "sentAt": "Sent at",
+      "status": "Status",
+      "retries": "Retry count",
+      "details": "Details",
+      "paginationLabel": "Email log pagination",
+      "previousPage": "Previous page",
+      "nextPage": "Next page",
+      "pageCount": "Page {page} / {total}"
+    }
   },
   "birthdays": {
     "messages": {

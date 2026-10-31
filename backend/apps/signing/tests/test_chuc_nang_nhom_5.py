@@ -12,8 +12,9 @@ from documents.models import VanBanDi
 
 from signing import enums
 from signing.models import SigningNotification, SigningProcess, SigningRequest
+from signing.services import process as process_service
 
-from .helpers import cap_quyen
+from .helpers import cap_quyen, tao_don_vi
 from .test_hanh_dong_ky_phase8 import KyBase
 from .test_trinh_ky_phase7 import BASE, TrinhKyBase
 
@@ -54,8 +55,8 @@ class ThongBaoTests(KyBase):
         mail.outbox.clear()
         pk = self.gui_moi()
         self.assertEqual(thong_bao(self.ky1, "CAN_KY").filter(trinh_ky_id=pk).count(), 1)  # gửi lặp không tạo thêm
-        self.assertFalse(thong_bao(self.ky2, "CAN_KY").filter(trinh_ky_id=pk).exists())  # ký chính bị ký nháy chặn
-        self.assertEqual([m.to for m in mail.outbox], [["nguoi1@demo.local"]])
+        self.assertEqual(thong_bao(self.ky2, "CAN_KY").filter(trinh_ky_id=pk).count(), 1)
+        self.assertCountEqual([m.to[0] for m in mail.outbox], ["nguoi1@demo.local", "nguoi2@demo.local"])
         self.assertIn("Cần ký duyệt", mail.outbox[0].subject)
         self.assertIn(f"/approvals/{pk}", mail.outbox[0].body)
         email = thong_bao(self.ky1, "CAN_KY", enums.KenhThongBao.EMAIL).get(trinh_ky_id=pk)
@@ -64,7 +65,7 @@ class ThongBaoTests(KyBase):
     def test_flow_events_reach_people_in_flow_but_not_actor(self):
         pk = self.gui_moi()
         with self.captureOnCommitCallbacks(execute=True):
-            self.assertEqual(self.ky(self.ky1).status_code, 200)  # ký nháy xong: mở ký chính
+            self.assertEqual(self.ky(self.ky1).status_code, 200)  # hai người ký chính được mở cùng cấp
         self.assertTrue(thong_bao(self.ky2, "CAN_KY").filter(trinh_ky_id=pk).exists())
         with self.captureOnCommitCallbacks(execute=True):
             self.assertEqual(self.ky(self.ky2).status_code, 200)  # đóng cấp 1: mở cấp 2
@@ -102,7 +103,7 @@ class ThongBaoTests(KyBase):
         call_command("gui_thong_bao_trinh_ky", stdout=mock.MagicMock())
         email.refresh_from_db()
         self.assertEqual(email.trang_thai, enums.TrangThaiThongBao.DA_GUI)
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertCountEqual([m.to[0] for m in mail.outbox], ["nguoi1@demo.local", "nguoi2@demo.local"])
 
     def test_user_without_email_only_in_app_and_api_lists_own(self):
         User.objects.filter(pk=self.ky1.pk).update(email="")
@@ -110,12 +111,44 @@ class ThongBaoTests(KyBase):
         self.assertFalse(thong_bao(self.ky1, kenh=enums.KenhThongBao.EMAIL).filter(trinh_ky_id=pk).exists())
         r = self.client_cua(User.objects.get(pk=self.ky1.pk)).get("/api/v1/signing/thong-bao/")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual((r.data[0]["loai_thong_bao"], r.data[0]["trinh_ky"]), ("CAN_KY", pk))
-        self.assertEqual(r.data[0]["van_ban"], "20/QD — Văn bản thử")  # văn bản 10 thuộc hồ sơ tạo ở setUp
-        self.assertTrue(r.data[0]["kenh_in_app"])
-        self.assertFalse(r.data[0]["email_da_gui"])
-        self.assertIsNone(r.data[0]["email_trang_thai"])
-        self.assertEqual(self.client_cua(User.objects.get(pk=self.ky3.pk)).get("/api/v1/signing/thong-bao/").data, [])
+        ket_qua = r.data["results"]
+        self.assertEqual((ket_qua[0]["loai_thong_bao"], ket_qua[0]["trinh_ky"]), ("CAN_KY", pk))
+        self.assertEqual(ket_qua[0]["van_ban"], "20/QD — Văn bản thử")  # văn bản 10 thuộc hồ sơ tạo ở setUp
+        self.assertTrue(ket_qua[0]["kenh_in_app"])
+        self.assertFalse(ket_qua[0]["email_da_gui"])
+        self.assertIsNone(ket_qua[0]["email_trang_thai"])
+        r_rong = self.client_cua(User.objects.get(pk=self.ky3.pk)).get("/api/v1/signing/thong-bao/")
+        self.assertEqual((r_rong.data["results"], r_rong.data["count"]), ([], 0))
+
+    def test_thong_bao_phan_trang_tim_kiem_va_loc_loai(self):
+        User.objects.filter(pk=self.ky1.pk).update(email="")
+        SigningNotification.objects.filter(nguoi_nhan_id=self.ky1.pk).delete()  # mốc sạch cho đếm/phân trang
+        pk1 = self.gui_moi()
+        pk2 = self.gui_moi()
+        c1 = self.client_cua(User.objects.get(pk=self.ky1.pk))
+
+        r = c1.get("/api/v1/signing/thong-bao/", {"page_size": 1})
+        self.assertEqual((r.status_code, r.data["count"], len(r.data["results"])), (200, 2, 1))
+        self.assertIsNotNone(r.data["next"])
+        r2 = c1.get("/api/v1/signing/thong-bao/", {"page_size": 1, "page": 2})
+        self.assertEqual(len(r2.data["results"]), 1)
+        self.assertNotEqual(r.data["results"][0]["id"], r2.data["results"][0]["id"])
+
+        r_loc = c1.get("/api/v1/signing/thong-bao/", {"loai_thong_bao": "CAN_KY"})
+        self.assertEqual(r_loc.data["count"], 2)
+        self.assertTrue(all(x["loai_thong_bao"] == "CAN_KY" for x in r_loc.data["results"]))
+        r_loc_khac = c1.get("/api/v1/signing/thong-bao/", {"loai_thong_bao": "HUY"})
+        self.assertEqual(r_loc_khac.data["count"], 0)
+        r_loc_sai = c1.get("/api/v1/signing/thong-bao/", {"loai_thong_bao": "khong-ton-tai"})
+        self.assertEqual((r_loc_sai.status_code, r_loc_sai.data["code"]), (400, "tham_so_khong_hop_le"))
+
+        r_q = c1.get("/api/v1/signing/thong-bao/", {"q": "Văn bản thử"})
+        self.assertEqual(r_q.data["count"], 2)
+        r_q_khong_dau = c1.get("/api/v1/signing/thong-bao/", {"q": "van ban thu"})  # không phân biệt hoa thường/dấu
+        self.assertEqual(r_q_khong_dau.data["count"], 2)
+        r_q_khong_khop = c1.get("/api/v1/signing/thong-bao/", {"q": "khong-khop"})
+        self.assertEqual(r_q_khong_khop.data["count"], 0)
+        self.assertEqual(r_q_khong_khop.data["results"], [])
 
 
 class BoLocTests(TrinhKyBase):
@@ -144,6 +177,63 @@ class BoLocTests(TrinhKyBase):
         SigningRequest.objects.filter(pk=self.a).update(created_at="2026-01-05T08:00:00Z")
         self.assertEqual(self.ids(tu_ngay="2026-01-01", den_ngay="2026-01-31"), {self.a})
         self.assertNotIn(self.a, self.ids(tu_ngay="2026-02-01"))
+
+    def test_filter_by_process_applied_unit_and_scoped_unit_choices(self):
+        from signing.enums import PhamViQuyTrinh
+
+        don_vi_a, don_vi_b, don_vi_khac = [tao_don_vi(ten) for ten in ("Phòng A", "Phòng B", "Phòng khác")]
+
+        def tao_quy_trinh_phong_ban(ma, don_vi, nguoi_ky):
+            nhap = process_service.tao_quy_trinh(
+                self.tao, ma_quy_trinh=ma, ten_quy_trinh=ma, pham_vi=PhamViQuyTrinh.PHONG_BAN,
+                don_vi_ap_dung_id=don_vi.pk, cap_ky=[{
+                    "cap_ky": 1, "ten_cap_ky": "Duyệt", "thu_tu": 1,
+                    "nguoi_ky": [{"nguoi_ky": nguoi_ky, "thu_tu": 1}],
+                }],
+            )
+            return process_service.kich_hoat(nhap, self.tao)
+
+        qt_a = tao_quy_trinh_phong_ban("QT-DV-A", don_vi_a, self.ky1)
+        qt_b = tao_quy_trinh_phong_ban("QT-DV-B", don_vi_b, self.ky1)
+        qt_khac = tao_quy_trinh_phong_ban("QT-DV-KHAC", don_vi_khac, self.ky2)
+
+        self.tao.don_vi = don_vi_a
+        self.tao.save(update_fields=["don_vi"])
+        r_a = self.tao_nhap(quy_trinh=qt_a.pk)
+        self.assertEqual(r_a.status_code, 201, r_a.data)
+        ho_so_a = r_a.data["id"]
+        self.tao.don_vi = don_vi_b
+        self.tao.save(update_fields=["don_vi"])
+        r_b = self.tao_nhap(quy_trinh=qt_b.pk)
+        self.assertEqual(r_b.status_code, 201, r_b.data)
+        ho_so_b = r_b.data["id"]
+
+        self.la.don_vi = don_vi_khac
+        self.la.save(update_fields=["don_vi"])
+        cap_quyen(self.la, "add_trinhky", "view_vanbandi")
+        client_khac = self.client_cua(self.la)
+        r_khac = self.tao_nhap(client=client_khac, quy_trinh=qt_khac.pk)
+        self.assertEqual(r_khac.status_code, 201, r_khac.data)
+        ho_so_khac = r_khac.data["id"]
+
+        self.assertEqual(self.ids(don_vi_ap_dung=str(don_vi_a.pk)), {ho_so_a})
+        self.assertEqual(self.ids(don_vi_ap_dung=str(don_vi_b.pk)), {ho_so_b})
+        self.assertEqual(self.ids(don_vi_ap_dung="999999"), set())
+
+        dem = self.c.get(f"{BASE}/thong-ke/", {"hop": "toi_gui", "don_vi_ap_dung": don_vi_a.pk})
+        self.assertEqual(dem.status_code, 200, dem.data)
+        self.assertEqual(dem.data["tat_ca"], 1)
+
+        lua_chon = self.c.get(f"{BASE}/don-vi-ap-dung/", {"hop": "toi_gui"})
+        self.assertEqual(lua_chon.status_code, 200, lua_chon.data)
+        self.assertEqual({x["id"] for x in lua_chon.data}, {don_vi_a.pk, don_vi_b.pk})
+        self.assertNotIn(ho_so_khac, self.ids())
+
+    def test_invalid_process_applied_unit_filter_returns_400(self):
+        for duong_dan in (f"{BASE}/", f"{BASE}/thong-ke/"):
+            for gia_tri in ("abc", "²", "9223372036854775808", "9" * 4301):
+                r = self.c.get(duong_dan, {"hop": "toi_gui", "don_vi_ap_dung": gia_tri})
+                self.assertEqual((r.status_code, r.data["code"]), (400, "tham_so_khong_hop_le"), gia_tri)
 
     def test_invalid_parameters(self):
         for tham_so in ({"tu_ngay": "05/01/2026"}, {"quy_trinh": "abc"}):

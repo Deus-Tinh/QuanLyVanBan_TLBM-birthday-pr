@@ -344,13 +344,22 @@ class DocumentAPITests(TestCase):
         self.assertIn("application/vnd.openxmlformats-officedocument", response["Content-Type"])
 
     def test_api_excel_export(self):
-        """GET /api/documents/export/?loai=DEN xuất file Excel theo bộ lọc."""
+        """GET /api/documents/export/?loai=DEN xuất file Excel theo bộ lọc (khi có quyền)."""
+        self.user.is_staff = True
+        self.user.save()
         response = self.client.get("/api/documents/export/?loai=DEN")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("application/vnd.openxmlformats-officedocument", response["Content-Type"])
 
+    def test_api_excel_export_without_permission_denied(self):
+        """GET /api/documents/export/?loai=DEN trả về 403 nếu không có quyền export."""
+        self.user.is_staff = False
+        self.user.save()
+        response = self.client.get("/api/documents/export/?loai=DEN")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_api_excel_import(self):
-        """POST /api/documents/import/ nhận file Excel và import."""
+        """POST /api/documents/import/ nhận file Excel và import (khi có quyền)."""
         self.user.is_staff = True
         self.user.save()
         template_stream = generate_excel_template("DEN")
@@ -367,6 +376,23 @@ class DocumentAPITests(TestCase):
         )
         self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_201_CREATED, status.HTTP_400_BAD_REQUEST])
 
+    def test_api_excel_import_without_permission_denied(self):
+        """POST /api/documents/import/ trả về 403 nếu không có quyền import."""
+        self.user.is_staff = False
+        self.user.save()
+        template_stream = generate_excel_template("DEN")
+        excel_file = SimpleUploadedFile(
+            "import_test.xlsx",
+            template_stream.read(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response = self.client.post(
+            "/api/documents/import/",
+            {"file": excel_file, "loai": "DEN"},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_attachment_upload_path_by_document_type(self):
         """Kiểm tra file đính kèm được tự động phân vào folder: den, di theo phân loại: thuong, han_che."""
         # 1. Văn bản Đến -> van-ban-den/YYYY/MM/DD/<uuid>.pdf
@@ -378,7 +404,7 @@ class DocumentAPITests(TestCase):
             file_size=16,
         )
         today = timezone.localdate()
-        self.assertRegex(att_den.file.name, rf"^van-ban-den/{today:%Y/%m/%d}/[0-9a-f]{{32}}\.pdf$")
+        self.assertRegex(att_den.file.name, rf"^van-ban-den/(?:noi-bo/)?{today:%Y/%m/%d}/[0-9a-f]{{32}}\.pdf$")
         self.assertEqual((Path(TEMP_STORAGE_ROOT) / att_den.file.name).read_bytes(), b"Test content den")
         self.assertEqual(att_den.file.url, f"/media/{att_den.file.name}")
         self.assertEqual(att_den.name, "congvan_den.pdf")
@@ -394,7 +420,7 @@ class DocumentAPITests(TestCase):
             name="thongbao_di.pdf",
             file_size=15,
         )
-        self.assertRegex(att_di.file.name, rf"^van-ban-di/{today:%Y/%m/%d}/[0-9a-f]{{32}}\.pdf$")
+        self.assertRegex(att_di.file.name, rf"^van-ban-di/(?:noi-bo/)?{today:%Y/%m/%d}/[0-9a-f]{{32}}\.pdf$")
         self.assertTrue((Path(TEMP_STORAGE_ROOT) / att_di.file.name).is_file())
 
     def test_create_with_attachment_stores_in_shared_tree_and_downloads(self):
@@ -411,7 +437,7 @@ class DocumentAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         att = VanBanDenAttachment.objects.get(document_id=response.data["id"])
         self.assertEqual(att.name, "Công văn.PDF")
-        self.assertRegex(att.file.name, r"^van-ban-den/\d{4}/\d{2}/\d{2}/[0-9a-f]{32}\.pdf$")
+        self.assertRegex(att.file.name, r"^van-ban-den/(?:noi-bo/)?\d{4}/\d{2}/\d{2}/[0-9a-f]{32}\.pdf$")
         download = self.client.get(f"/api/documents/{att.document_id}/attachments/{att.id}/download/")
         self.assertEqual(download.status_code, status.HTTP_200_OK)
         self.assertEqual(download.content, b"%PDF-1.4 noi dung")
@@ -2556,6 +2582,559 @@ class DocumentReplacementDisambiguationTests(TestCase):
         self.assertEqual(res_fail2.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("link_thay_the", res_fail2.data)
         self.assertIn("không thể tự thiết lập thay thế chính nó", str(res_fail2.data["link_thay_the"][0]))
+
+
+@override_settings(DOCUMENT_STORAGE_ROOT=TEMP_STORAGE_ROOT)
+class ExcelAttachmentAndOldfileTests(APITestCase):
+    """Kiểm thử chuyên sâu cho tính năng Export/Import Excel kèm tệp đính kèm và kho lịch sử oldfile."""
+
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            username="excel_att_user",
+            email="excel_att@example.com",
+            password="password123",
+            ho_ten="Tester Excel",
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_excel_template_includes_attachment_column(self):
+        """Tất cả 4 mẫu Excel và mẫu Mật đều có cột 'Tệp đính kèm' trước 'Link văn bản thay thế'."""
+        from documents.services import generate_excel_template
+        import openpyxl
+
+        configs = [
+            ("DEN", "NOI_BO"),
+            ("DEN", "HAN_CHE"),
+            ("DI", "NOI_BO"),
+            ("DI", "HAN_CHE"),
+            ("MAT", "HAN_CHE"),
+        ]
+
+        for loai, pham_vi in configs:
+            bio = generate_excel_template(loai, pham_vi)
+            wb = openpyxl.load_workbook(bio)
+            ws = wb.active
+            headers = [cell.value for cell in ws[1] if cell.value]
+
+            self.assertIn("Tệp đính kèm", headers, f"Thiếu cột 'Tệp đính kèm' trong mẫu {loai} {pham_vi}")
+            idx_att = headers.index("Tệp đính kèm")
+            idx_link = headers.index("Link văn bản thay thế")
+            idx_note = headers.index("Ghi chú")
+
+            # Thứ tự chuẩn: Tệp đính kèm -> Link văn bản thay thế -> Ghi chú
+            self.assertEqual(idx_att + 1, idx_link)
+            self.assertEqual(idx_link + 1, idx_note)
+
+            # Cột có hover comment hướng dẫn
+            cell_att_hdr = ws.cell(row=1, column=idx_att + 1)
+            self.assertIsNotNone(cell_att_hdr.comment)
+            self.assertIn("oldfile", cell_att_hdr.comment.text)
+
+    def test_export_excel_with_attachments(self):
+        """Export danh sách văn bản ra Excel điền đúng danh sách tên tệp đính kèm."""
+        from documents.services import export_to_excel
+        import openpyxl
+
+        doc = VanBanDen.objects.create(
+            nam=2026,
+            so_hieu="88/CV-ATT",
+            so_thu_tu=1,
+            pham_vi=PhamVi.NOI_BO,
+            noi_ban_hanh="Bộ GD&ĐT",
+            trich_yeu="Công văn kiểm thử xuất tệp đính kèm",
+            hieu_luc=HieuLuc.CON_HIEU_LUC,
+            nguoi_tao=self.user,
+        )
+        VanBanDenAttachment.objects.create(
+            document=doc,
+            name="To_trinh_01.pdf",
+            path="van-ban-den/noi-bo/2026/10/29/test1.pdf",
+        )
+        VanBanDenAttachment.objects.create(
+            document=doc,
+            name="Phu_luc_02.docx",
+            path="van-ban-den/noi-bo/2026/10/29/test2.docx",
+        )
+
+        qs = VanBanDen.objects.filter(id=doc.id)
+        bio = export_to_excel(qs, "DEN", "NOI_BO")
+        wb = openpyxl.load_workbook(bio)
+        ws = wb.active
+
+        headers = [cell.value for cell in ws[1] if cell.value]
+        self.assertIn("Tệp đính kèm", headers)
+        idx_att = headers.index("Tệp đính kèm") + 1
+
+        cell_val = ws.cell(row=2, column=idx_att).value
+        self.assertIn("To_trinh_01.pdf", cell_val)
+        self.assertIn("Phu_luc_02.docx", cell_val)
+        self.assertIn(";", cell_val)
+
+    def test_import_excel_with_oldfile_success_and_missing_warning(self):
+        """Import Excel: tìm thấy file trong oldfile thì liên kết, thiếu file thì ghi cảnh báo rõ ràng."""
+        import tempfile
+        from pathlib import Path
+        from django.test import override_settings
+        from documents.services import import_from_excel
+        from openpyxl import Workbook
+        import io
+
+        with tempfile.TemporaryDirectory() as temp_oldfile_dir:
+            temp_oldfile = Path(temp_oldfile_dir)
+            # Tạo thư mục và file thật trong kho oldfile: van-ban-den/noi-bo/2026/09/15/To_trinh_goc.pdf
+            folder = temp_oldfile / "van-ban-den" / "noi-bo" / "2026" / "09" / "15"
+            folder.mkdir(parents=True, exist_ok=True)
+            real_file = folder / "To_trinh_goc.pdf"
+            real_file.write_bytes(b"%PDF-1.4 test oldfile content")
+
+            with override_settings(OLDFILE_STORAGE_ROOT=str(temp_oldfile)):
+                wb = Workbook()
+                ws = wb.active
+                ws.append(["Số, ký hiệu VB", "Ngày đến", "Trích yếu nội dung", "Hiệu lực", "Phạm vi", "Tệp đính kèm"])
+                # Dòng 1: có file tồn tại thật
+                ws.append(["101/CV-OLD", "15/09/2026 08:30:00", "Công văn cũ có file thật", "CON_HIEU_LUC", "Nội bộ", "To_trinh_goc.pdf"])
+                # Dòng 2: file không tồn tại
+                ws.append(["102/CV-OLD", "15/09/2026 08:30:00", "Công văn cũ file không tồn tại", "CON_HIEU_LUC", "Nội bộ", "File_ao.pdf"])
+
+                bio = io.BytesIO()
+                wb.save(bio)
+                bio.seek(0)
+
+                res = import_from_excel(bio, "DEN", self.user, pham_vi="NOI_BO")
+                self.assertEqual(res["created"], 2)
+
+                # Dòng 1 gắn attachment thành công
+                doc1 = VanBanDen.objects.get(so_hieu="101/CV-OLD")
+                att1 = doc1.attachments.filter(is_deleted=False).first()
+                self.assertIsNotNone(att1)
+                self.assertEqual(att1.name, "To_trinh_goc.pdf")
+                self.assertEqual(att1.path, "oldfile/van-ban-den/noi-bo/2026/09/15/To_trinh_goc.pdf")
+                with att1.file.open("rb") as f:
+                    file_bytes = f.read()
+                self.assertEqual(file_bytes, b"%PDF-1.4 test oldfile content")
+                att1.file.close()
+
+                # Dòng 2 không gắn attachment và có cảnh báo trong errors
+                doc2 = VanBanDen.objects.get(so_hieu="102/CV-OLD")
+                self.assertEqual(doc2.attachments.count(), 0)
+                self.assertTrue(any("File_ao.pdf" in err["message"] for err in res["errors"]))
+
+    def test_import_excel_with_uploaded_attachments_success(self):
+        """Import Excel nạp trực tiếp danh sách attachments tải lên và liên kết chính xác."""
+        from documents.services import import_from_excel
+        from openpyxl import Workbook
+        import io
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["Số, ký hiệu VB", "Ngày đến", "Trích yếu nội dung", "Hiệu lực", "Phạm vi", "Tệp đính kèm"])
+        # Dòng 1: Gắn 2 tệp tải lên
+        ws.append(["103/CV-NEW", "20/10/2026 09:00:00", "Công văn kèm 2 file tải lên", "CON_HIEU_LUC", "Nội bộ", "CV_DinhKem_1.pdf; CV_DinhKem_2.docx"])
+        # Dòng 2: Tệp không có trong danh sách tải lên
+        ws.append(["104/CV-NEW", "20/10/2026 09:00:00", "Công văn tệp không có", "CON_HIEU_LUC", "Nội bộ", "Khong_Co.pdf"])
+
+        bio = io.BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+
+        uploaded_files = [
+            SimpleUploadedFile("CV_DinhKem_1.pdf", b"%PDF-1.4 sample content 1", content_type="application/pdf"),
+            SimpleUploadedFile("CV_DinhKem_2.docx", b"sample content 2", content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        ]
+
+        res = import_from_excel(bio, "DEN", self.user, pham_vi="NOI_BO", attachments=uploaded_files)
+        self.assertEqual(res["created"], 2)
+
+        doc1 = VanBanDen.objects.get(so_hieu="103/CV-NEW")
+        self.assertEqual(doc1.attachments.count(), 2)
+        att_names = set(doc1.attachments.values_list("name", flat=True))
+        self.assertEqual(att_names, {"CV_DinhKem_1.pdf", "CV_DinhKem_2.docx"})
+
+        # Kiểm tra nội dung tệp lưu trữ
+        att1 = doc1.attachments.get(name="CV_DinhKem_1.pdf")
+        with att1.file.open("rb") as f:
+            content1 = f.read()
+        self.assertEqual(content1, b"%PDF-1.4 sample content 1")
+        att1.file.close()
+
+        # Dòng 2 không có tệp và trả về thông báo lỗi/cảnh báo
+        doc2 = VanBanDen.objects.get(so_hieu="104/CV-NEW")
+        self.assertEqual(doc2.attachments.count(), 0)
+        self.assertTrue(any("Khong_Co.pdf" in err["message"] for err in res["errors"]))
+
+    def test_import_excel_past_date_parsing(self):
+        """Kiểm tra hàm _parse_date chấp nhận linh hoạt các mốc ngày giờ trong quá khứ."""
+        from documents.services import _parse_date
+        from datetime import date, datetime
+
+        # Chuỗi ngày giờ quá khứ định dạng dd/mm/yyyy hh:mm:ss
+        dt1 = _parse_date("15/08/2015 10:15:30")
+        self.assertIsNotNone(dt1)
+        self.assertEqual(dt1.year, 2015)
+        self.assertEqual(dt1.month, 8)
+        self.assertEqual(dt1.day, 15)
+        self.assertEqual(dt1.hour, 10)
+        self.assertEqual(dt1.minute, 15)
+
+        # Chuỗi ngày quá khứ yyyy-mm-dd
+        dt2 = _parse_date("2010-04-20")
+        self.assertIsNotNone(dt2)
+        self.assertEqual(dt2.year, 2010)
+        self.assertEqual(dt2.month, 4)
+        self.assertEqual(dt2.day, 20)
+
+        # Đối tượng date từ openpyxl
+        d_obj = date(1998, 12, 25)
+        dt3 = _parse_date(d_obj)
+        self.assertIsNotNone(dt3)
+        self.assertEqual(dt3.year, 1998)
+        self.assertEqual(dt3.month, 12)
+        self.assertEqual(dt3.day, 25)
+
+        # Đối tượng datetime từ openpyxl
+        dt_obj = datetime(2005, 6, 1, 8, 30, 0)
+        dt4 = _parse_date(dt_obj)
+        self.assertIsNotNone(dt4)
+        self.assertEqual(dt4.year, 2005)
+        self.assertEqual(dt4.month, 6)
+        self.assertEqual(dt4.day, 1)
+
+    def test_api_import_excel_with_attachments_endpoint(self):
+        """API endpoint /api/documents/import/ nhận file Excel và multipart attachments."""
+        from openpyxl import Workbook
+        import io
+
+        self.user.is_superuser = True
+        self.user.save()
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["Số, ký hiệu VB", "Ngày đến", "Trích yếu nội dung", "Hiệu lực", "Phạm vi", "Tệp đính kèm"])
+        ws.append(["105/CV-API", "25/10/2026 14:00:00", "Công văn test qua API kèm file", "CON_HIEU_LUC", "Nội bộ", "API_Doc.pdf"])
+
+        excel_bio = io.BytesIO()
+        wb.save(excel_bio)
+        excel_bio.seek(0)
+
+        excel_file = SimpleUploadedFile("van_ban_import.xlsx", excel_bio.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        pdf_file = SimpleUploadedFile("API_Doc.pdf", b"%PDF-1.4 test api attachment", content_type="application/pdf")
+
+        response = self.client.post(
+            "/api/documents/import/?loai=DEN&pham_vi=NOI_BO",
+            {
+                "file": excel_file,
+                "attachments": [pdf_file],
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data.get("created"), 1)
+
+        doc = VanBanDen.objects.get(so_hieu="105/CV-API")
+        self.assertEqual(doc.attachments.count(), 1)
+        att = doc.attachments.first()
+        self.assertEqual(att.name, "API_Doc.pdf")
+
+    def test_import_excel_outbound_with_multiple_attachments_and_normalization(self):
+        """Import Văn bản Đi với 2 tệp đính kèm (có khoảng trắng thừa trước đuôi file) vẫn nhận diện đủ cả 2."""
+        from documents.services import import_from_excel
+        from openpyxl import Workbook
+        import io
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["Số, ký hiệu VB", "Ngày ban hành", "Trích yếu nội dung", "Hiệu lực", "Phạm vi", "Tệp đính kèm"])
+        # Ghi 2 tệp trong đó tệp 1 có khoảng trắng thừa trước dấu chấm (.pdf)
+        ws.append(["201/DI-NORM", "25/10/2026", "Công văn đi test 2 file đính kèm", "CON_HIEU_LUC", "Nội bộ", "CV_Di_1 .pdf; CV_Di_2.docx"])
+
+        excel_bio = io.BytesIO()
+        wb.save(excel_bio)
+        excel_bio.seek(0)
+
+        f1 = SimpleUploadedFile("CV_Di_1.pdf", b"%PDF-1.4 content di 1", content_type="application/pdf")
+        f2 = SimpleUploadedFile("CV_Di_2.docx", b"content di 2", content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+        res = import_from_excel(excel_bio, "DI", self.user, pham_vi="NOI_BO", attachments=[f1, f2])
+        self.assertEqual(res["created"], 1)
+
+        doc = VanBanDi.objects.get(so_hieu="201/DI-NORM")
+        self.assertEqual(doc.attachments.count(), 2)
+        att_names = set(doc.attachments.values_list("name", flat=True))
+        self.assertIn("CV_Di_1 .pdf", att_names)
+        self.assertIn("CV_Di_2.docx", att_names)
+
+    def test_import_excel_with_smart_extension_matching(self):
+        """Khớp thông minh định dạng tệp: Excel ghi .doc nhưng tệp tải lên là .docx (hoặc không ghi đuôi) vẫn nhận đủ."""
+        from documents.services import import_from_excel
+        from openpyxl import Workbook
+        import io
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["Số, ký hiệu VB", "Ngày ban hành", "Trích yếu nội dung", "Hiệu lực", "Phạm vi", "Tệp đính kèm"])
+        # Cột tệp ghi: 1 file pdf, 1 file .doc (nhưng thực tế là .docx), 1 file không đuôi (nhưng thực tế là .xlsx)
+        ws.append(["202/DI-SMART", "25/10/2026", "VB test smart extension", "CON_HIEU_LUC", "Nội bộ", "HoaDon_test.pdf; QNA.doc; BangLuong"])
+
+        excel_bio = io.BytesIO()
+        wb.save(excel_bio)
+        excel_bio.seek(0)
+
+        f1 = SimpleUploadedFile("HoaDon_test.pdf", b"%PDF-1.4 sample", content_type="application/pdf")
+        f2 = SimpleUploadedFile("QNA.docx", b"docx sample content", content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        f3 = SimpleUploadedFile("BangLuong.png", b"\x89PNG\r\n\x1a\n sample", content_type="image/png")
+
+        res = import_from_excel(excel_bio, "DI", self.user, pham_vi="NOI_BO", attachments=[f1, f2, f3])
+        self.assertEqual(res["created"], 1)
+        self.assertEqual(len(res["errors"]), 0)
+
+        doc = VanBanDi.objects.get(so_hieu="202/DI-SMART")
+        self.assertEqual(doc.attachments.count(), 3)
+        att_names = set(doc.attachments.values_list("name", flat=True))
+        self.assertIn("HoaDon_test.pdf", att_names)
+        self.assertIn("QNA.docx", att_names)
+        self.assertIn("BangLuong.png", att_names)
+
+    def test_delete_outbound_document_with_same_id_as_inbound_restricted(self):
+        """Xóa Văn bản Đi khi tồn tại Văn bản Đến Hạn chế có cùng ID: gọi với ?loai=DI xóa đúng Văn bản Đi."""
+        self.user.is_superuser = True
+        self.user.save()
+
+        # Tạo 1 VB Đến Hạn chế
+        doc_den = VanBanDen.objects.create(
+            so_hieu="100/DEN-HC",
+            pham_vi=PhamVi.HAN_CHE,
+            trich_yeu="Văn bản đến hạn chế cấm xóa",
+            nguoi_tao=self.user,
+        )
+        # Tạo 1 VB Đi Nội bộ và gán cùng ID với doc_den để kiểm thử trùng ID giữa 2 bảng
+        doc_di = VanBanDi(
+            id=doc_den.id,
+            so_hieu="100/DI-NB",
+            pham_vi=PhamVi.NOI_BO,
+            trich_yeu="Văn bản đi nội bộ được phép xóa",
+            nguoi_tao=self.user,
+        )
+        doc_di.save(force_insert=True)
+
+        # 1. Gọi DELETE không có loai=DI nhưng có Header Referer từ trang văn bản đi
+        res1 = self.client.delete(f"/api/documents/{doc_di.id}/?loai=DI")
+        self.assertEqual(res1.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Kiểm chứng: Văn bản Đi đã bị xóa
+        self.assertFalse(VanBanDi.objects.filter(id=doc_di.id).exists())
+        # Văn bản Đến Hạn chế vẫn an toàn, không hề bị ảnh hưởng
+        self.assertTrue(VanBanDen.objects.filter(id=doc_den.id).exists())
+
+
+
+class HieuLucPermissionTests(APITestCase):
+    """
+    Bộ test kiểm tra phân quyền thay đổi hiệu lực văn bản (Hợp đồng Nhóm 7):
+    - change_hieu_luc_vanbanden
+    - change_hieu_luc_vanbandi
+    """
+
+    def setUp(self):
+        from django.contrib.contenttypes.models import ContentType
+        from django.contrib.auth.models import Permission, Group
+
+        self.admin = User.objects.create_superuser(username="admin_hl", password="password123", is_staff=True)
+        self.staff1 = User.objects.create_user(username="staff_hl1", password="password123")
+        self.staff2 = User.objects.create_user(username="staff_hl2", password="password123")
+        self.vanthu = User.objects.create_user(username="vanthu_hl", password="password123")
+
+        # Cấp quyền tạo/sửa văn bản thông thường cho staff1 và staff2
+        ct_den = ContentType.objects.get_for_model(VanBanDen)
+        ct_di = ContentType.objects.get_for_model(VanBanDi)
+
+        def get_or_create_perm(codename, name, module_ten, ct):
+            perm = Permission.objects.filter(codename=codename).first()
+            if not perm:
+                from django.db import connection
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO auth_permission (name, codename, module_ten, content_type_id)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (codename) DO NOTHING
+                        """,
+                        [name, codename, module_ten, ct.pk if ct else None],
+                    )
+                perm = Permission.objects.filter(codename=codename).first()
+            return perm
+
+        perm_add_den = get_or_create_perm("add_vanbanden", "Thêm VB Đến", "Văn bản đến", ct_den)
+        perm_change_den = get_or_create_perm("change_vanbanden", "Sửa VB Đến", "Văn bản đến", ct_den)
+        perm_add_di = get_or_create_perm("add_vanbandi", "Thêm VB Đi", "Văn bản đi", ct_di)
+        perm_change_di = get_or_create_perm("change_vanbandi", "Sửa VB Đi", "Văn bản đi", ct_di)
+
+        self.staff1.user_permissions.add(perm_add_den, perm_change_den, perm_add_di, perm_change_di)
+        self.staff2.user_permissions.add(perm_add_den, perm_change_den, perm_add_di, perm_change_di)
+
+        # Tạo sẵn quyền đổi hiệu lực
+        self.perm_hl_den = get_or_create_perm("change_hieu_luc_vanbanden", "Đổi hiệu lực văn bản đến", "Văn bản đến", ct_den)
+        self.perm_hl_di = get_or_create_perm("change_hieu_luc_vanbandi", "Đổi hiệu lực văn bản đi", "Văn bản đi", ct_di)
+
+        # Mặc định của Nhóm 7: Nhóm Văn thư (VT) có quyền sửa văn bản và đổi hiệu lực
+        group_vt, _ = Group.objects.get_or_create(name="VT")
+        group_vt.permissions.add(perm_change_den, perm_change_di, self.perm_hl_den, self.perm_hl_di)
+        self.vanthu.groups.add(group_vt)
+
+        # Tạo 1 văn bản đến và 1 văn bản đi do staff1 tạo
+        self.doc_den = VanBanDen.objects.create(
+            so_hieu="10/DEN-HL",
+            so_thu_tu=10,
+            trich_yeu="Văn bản đến test hiệu lực",
+            nguoi_tao=self.staff1,
+            hieu_luc=HieuLuc.CON_HIEU_LUC,
+            pham_vi=PhamVi.NOI_BO,
+        )
+        self.doc_di = VanBanDi.objects.create(
+            so_hieu="20/DI-HL",
+            so_thu_tu=20,
+            trich_yeu="Văn bản đi test hiệu lực",
+            nguoi_tao=self.staff1,
+            hieu_luc=HieuLuc.CON_HIEU_LUC,
+            pham_vi=PhamVi.NOI_BO,
+        )
+
+    def test_user_without_perm_cannot_change_hieu_luc_on_update(self):
+        """Người dùng có quyền sửa văn bản nhưng KHÔNG có quyền đổi hiệu lực thì bị từ chối khi sửa hieu_luc."""
+        client = APIClient()
+        client.force_authenticate(user=self.staff1)
+
+        # 1. Sửa trích yếu bình thường mà không đổi hiệu lực -> 200 OK
+        res = client.patch(
+            f"/api/documents/{self.doc_den.id}/",
+            {"trich_yeu": "Trích yếu mới hợp lệ"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # 2. Cố tình gửi hieu_luc khác giá trị hiện tại -> Bị từ chối 400 ValidationError
+        res_fail = client.patch(
+            f"/api/documents/{self.doc_den.id}/",
+            {"hieu_luc": HieuLuc.HET_HIEU_LUC},
+            format="json",
+        )
+        self.assertEqual(res_fail.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("hieu_luc", res_fail.data)
+        self.doc_den.refresh_from_db()
+        self.assertEqual(self.doc_den.hieu_luc, HieuLuc.CON_HIEU_LUC)
+
+    def test_user_with_perm_can_change_hieu_luc(self):
+        """Người dùng được cấp quyền change_hieu_luc_vanbanden có thể đổi hiệu lực thành công."""
+        self.staff1.user_permissions.add(self.perm_hl_den)
+        self.staff1 = User.objects.get(pk=self.staff1.pk)
+
+        client = APIClient()
+        client.force_authenticate(user=self.staff1)
+
+        res = client.patch(
+            f"/api/documents/{self.doc_den.id}/",
+            {"hieu_luc": HieuLuc.HET_HIEU_LUC},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.doc_den.refresh_from_db()
+        self.assertEqual(self.doc_den.hieu_luc, HieuLuc.HET_HIEU_LUC)
+
+    def test_admin_and_vanthu_can_change_hieu_luc(self):
+        """Admin và Văn thư (role vt) có quyền đổi hiệu lực mà không cần gán thêm quyền lẻ."""
+        client = APIClient()
+
+        # Admin
+        client.force_authenticate(user=self.admin)
+        res_admin = client.patch(
+            f"/api/documents/{self.doc_den.id}/",
+            {"hieu_luc": HieuLuc.CON_HIEU_LUC_1_PHAN},
+            format="json",
+        )
+        self.assertEqual(res_admin.status_code, status.HTTP_200_OK)
+
+        # Văn thư (role vt)
+        client.force_authenticate(user=self.vanthu)
+        res_vt = client.patch(
+            f"/api/documents/{self.doc_den.id}/",
+            {"hieu_luc": HieuLuc.HET_HIEU_LUC},
+            format="json",
+        )
+        self.assertEqual(res_vt.status_code, status.HTTP_200_OK)
+
+    def test_create_document_with_non_default_hieu_luc_restricted(self):
+        """Người không có quyền chỉ được để giá trị mặc định CON_HIEU_LUC khi tạo văn bản."""
+        client = APIClient()
+        client.force_authenticate(user=self.staff2)
+
+        # 1. Tạo với hieu_luc=HET_HIEU_LUC khi chưa có quyền -> 400
+        res_fail = client.post(
+            "/api/documents/",
+            {
+                "loai": "DEN",
+                "so_hieu": "NEW-FAIL/2026",
+                "trich_yeu": "Tạo văn bản test hieu_luc",
+                "hieu_luc": HieuLuc.HET_HIEU_LUC,
+            },
+            format="json",
+        )
+        self.assertEqual(res_fail.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("hieu_luc", res_fail.data)
+
+        # 2. Tạo với giá trị mặc định CON_HIEU_LUC -> 201 Created
+        res_ok = client.post(
+            "/api/documents/",
+            {
+                "loai": "DEN",
+                "so_hieu": "NEW-OK/2026",
+                "trich_yeu": "Tạo văn bản hợp lệ",
+                "hieu_luc": HieuLuc.CON_HIEU_LUC,
+            },
+            format="json",
+        )
+        self.assertEqual(res_ok.status_code, status.HTTP_201_CREATED)
+
+    def test_vanbandi_hieu_luc_permission(self):
+        """Kiểm tra quyền change_hieu_luc_vanbandi cho Văn bản Đi."""
+        client = APIClient()
+        client.force_authenticate(user=self.staff1)
+
+        # Chưa có quyền -> Thất bại khi đổi hiệu lực văn bản đi
+        res_fail = client.patch(
+            f"/api/documents/{self.doc_di.id}/",
+            {"hieu_luc": HieuLuc.HET_HIEU_LUC},
+            format="json",
+        )
+        self.assertEqual(res_fail.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Cấp quyền -> Thành công
+        self.staff1.user_permissions.add(self.perm_hl_di)
+        self.staff1 = User.objects.get(pk=self.staff1.pk)
+        client.force_authenticate(user=self.staff1)
+
+        res_ok = client.patch(
+            f"/api/documents/{self.doc_di.id}/",
+            {"hieu_luc": HieuLuc.HET_HIEU_LUC},
+            format="json",
+        )
+        self.assertEqual(res_ok.status_code, status.HTTP_200_OK)
+
+    def test_detail_serializer_can_change_hieu_luc_flag(self):
+        """API chi tiết văn bản trả về cờ can_change_hieu_luc chính xác theo quyền của user."""
+        client = APIClient()
+
+        # Staff1 không có quyền đổi hiệu lực
+        client.force_authenticate(user=self.staff1)
+        res1 = client.get(f"/api/documents/{self.doc_den.id}/")
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        self.assertFalse(res1.data.get("can_change_hieu_luc"))
+
+        # Admin có quyền
+        client.force_authenticate(user=self.admin)
+        res2 = client.get(f"/api/documents/{self.doc_den.id}/")
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertTrue(res2.data.get("can_change_hieu_luc"))
+
 
 
 

@@ -89,8 +89,8 @@ class YeuCauSuaTests(KyBase):
     def test_rules(self):
         r = self.yeu_cau_sua(self.ky1, tieu_de="")
         self.assertEqual((r.status_code, r.data["code"]), (400, "du_lieu_khong_hop_le"))
-        r = self.yeu_cau_sua(self.ky2)  # ký chính chưa mở
-        self.assertEqual((r.status_code, r.data["code"]), (409, "chua_den_luot_ky"))
+        r = self.yeu_cau_sua(self.ky3)  # cấp 2 chưa mở
+        self.assertEqual((r.status_code, r.data["code"]), (403, "khong_phai_nguoi_ky_dang_mo"))
         r = self.giai_quyet()
         self.assertEqual((r.status_code, r.data["code"]), (409, "khong_co_yeu_cau_sua_dang_mo"))
         self.assertEqual(self.tin_nhan(self.tao, "x").data["code"], "khong_co_trao_doi_dang_mo")
@@ -139,12 +139,14 @@ class TraSuaDongThoiTests(TransactionTestCase):
         self.ky1 = User.objects.create_user("ky1")
         self.ky2 = User.objects.create_user("ky2")
         cap_quyen(self.tao, "add_trinhky", "send_trinhky", "view_vanbandi")
+        cap_quyen(self.ky1, "sign_trinhky")
+        cap_quyen(self.ky2, "sign_trinhky")
         qt = process_service.tao_quy_trinh(self.tao, ma_quy_trinh="DT", ten_quy_trinh="DT", pham_vi="CONG_TY", cap_ky=[
             {"cap_ky": 1, "ten_cap_ky": "C", "thu_tu": 1, "nguoi_ky": [
                 {"nguoi_ky": self.ky1, "thu_tu": 1}, {"nguoi_ky": self.ky2, "thu_tu": 2}]}])
         qt = process_service.kich_hoat(qt, self.tao)
-        ho_so = trinh_ky_service.tao_nhap(self.tao, document_type="vanbandi", van_ban_id=10, quy_trinh=qt,
-                                          tep=tep_pdf())
+        ho_so = trinh_ky_service.tao_nhap(self.tao, quy_trinh=qt, tep=tep_pdf(),
+                                          trich_yeu_van_ban="Tài liệu kiểm tra")
         self.ho_so = trinh_ky_service.gui(ho_so, self.tao, khoa_chong_trung="g")
         self.private, self.key = khoa_hoat_dong(self.ky1, "K-DT")
 

@@ -408,7 +408,7 @@ export default function RolesPage() {
 
       {/* Modal Thêm/Sửa tên Nhóm quyền */}
       <RoleModal
-        key={editingRole?.id ?? (isRoleModalOpen ? 'open-new-role' : 'closed-role')}
+        key={`${editingRole?.id ?? 'new-role'}-${isRoleModalOpen ? 'open' : 'closed'}`}
         isOpen={isRoleModalOpen}
         onClose={() => setIsRoleModalOpen(false)}
         onSubmit={handleSaveRoleName}

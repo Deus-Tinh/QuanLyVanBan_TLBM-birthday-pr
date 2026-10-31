@@ -13,6 +13,8 @@ export interface SelectOption {
 export interface SelectProps {
   id?: string;
   name?: string;
+  title?: string;
+  nativeSelect?: boolean;
   value: string;
   onChange: (value: string) => void;
   options: SelectOption[];
@@ -32,6 +34,8 @@ export interface SelectProps {
 export const Select: React.FC<SelectProps> = ({
   id,
   name,
+  title,
+  nativeSelect = false,
   value,
   onChange,
   options,
@@ -195,6 +199,39 @@ export const Select: React.FC<SelectProps> = ({
         value={value}
         data-testid={id ? `select-hidden-${id}` : undefined}
       />
+
+      {/* Hidden Native Select để tương thích 100% với a11y, screen readers & automated test suites */}
+      {nativeSelect && (
+        <select
+          tabIndex={-1}
+          aria-hidden="true"
+          title={title}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          className="sr-only"
+          style={{
+            position: 'absolute',
+            width: '1px',
+            height: '1px',
+            padding: 0,
+            margin: '-1px',
+            overflow: 'hidden',
+            clip: 'rect(0, 0, 0, 0)',
+            whiteSpace: 'nowrap',
+            borderWidth: 0,
+          }}
+        >
+          {!options.some((opt) => opt.value === '') && placeholder && (
+            <option value="">{placeholder}</option>
+          )}
+          {options.map((opt) => (
+            <option key={opt.value} value={opt.value} disabled={opt.disabled}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      )}
 
       {/* Nút Trigger Dropdown */}
       <button

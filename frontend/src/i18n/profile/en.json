@@ -6,7 +6,21 @@
     "role": "System Role",
     "department": "Work Unit",
     "email": "Contact Email",
-    "sampleDept": "Operating Department / Division"
+    "sampleDept": "Operating Department / Division",
+    "roles": {
+      "admin": "Administrator",
+      "administrator": "Administrator",
+      "systemAdmin": "System Administrator",
+      "specialist": "Specialist / Officer",
+      "head": "Department Head",
+      "deputyHead": "Deputy Department Head",
+      "archivist": "Archivist / Document Clerk",
+      "director": "Director",
+      "board": "Board of Directors",
+      "auditor": "Auditor",
+      "assistant": "CEO Assistant",
+      "staff": "Staff"
+    }
   },
   "passwordChange": {
     "title": "Set New Account Password",
@@ -34,7 +48,8 @@
     "strengthWeak": "Weak",
     "strengthFair": "Fair",
     "strengthGood": "Good",
-    "strengthStrong": "Strong"
+    "strengthStrong": "Strong",
+    "helpHotline": "Need help or forgot your password? Please contact administrator via internal hotline or ask AI Assistant."
   },
   "pages": {
     "profile": {

@@ -24,7 +24,7 @@ class DashboardTests(KyBase):
         self.assertEqual(d["so_cho_ky"], 1)
         self.assertEqual(d["gan_day"][0]["id"], self.pk)
         self.assertTrue(d["gan_day"][0]["can_toi_ky"])
-        self.assertEqual((d["gan_day"][0]["trang_thai"], d["gan_day"][0]["nhan_trang_thai"]), ("CHO_KY", "Chờ ký"))
+        self.assertEqual((d["gan_day"][0]["trang_thai"], d["gan_day"][0]["nhan_trang_thai"]), ("CHO_KY", "Đang chờ ký"))
         self.assertEqual(d["gan_day"][0]["nguoi_trinh"], "chuyen_vien")
         self.assertEqual(self.data(self.ky3)["so_cho_ky"], 0)  # cấp 2 chưa mở: có liên quan nhưng chưa chờ ký
         self.assertFalse(self.data(self.ky3)["gan_day"][0]["can_toi_ky"])
@@ -43,4 +43,15 @@ class DashboardTests(KyBase):
         self.assertTrue(all(p["tieu_de"] for p in d["gan_day"]))
         self.hanh_dong(self.ky1, "tu-choi", ly_do_tu_choi="Sai số liệu")
         nhan = {p["id"]: p["nhan_trang_thai"] for p in tong_quan_dashboard(self.tao, 20)["gan_day"]}
-        self.assertEqual(nhan[self.pk], "Từ chối")
+        self.assertEqual(nhan[self.pk], "Đã từ chối")
+
+    def test_returned_request_exposes_current_attempt_state(self):
+        response = self.hanh_dong(
+            self.ky1, "yeu-cau-sua", tieu_de="Bổ sung chứng từ", ly_do="Thiếu phụ lục."
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+
+        item = next(row for row in tong_quan_dashboard(self.tao)["gan_day"] if row["id"] == self.pk)
+        self.assertEqual(item["trang_thai"], "CHO_KY")
+        self.assertEqual(item["trang_thai_luot"], "YEU_CAU_SUA")
+        self.assertEqual(item["nhan_trang_thai"], "Chờ người trình sửa")

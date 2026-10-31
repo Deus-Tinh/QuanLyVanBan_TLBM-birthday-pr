@@ -119,7 +119,7 @@ def _sao_chep_luot(luot_cu, cap_cu, yeu_cau, nguoi, khoa_chong_trung, thoi_diem,
         for n in cap.nguoi_ky_set.all():
             SigningRequestStepSigner.objects.create(
                 buoc_ky=cap_moi, nguoi_ky=n.nguoi_ky, chuc_vu_id=n.chuc_vu_id, ten_nguoi_ky=n.ten_nguoi_ky,
-                ten_chuc_vu=n.ten_chuc_vu, vai_tro_ky=n.vai_tro_ky, chan_ky_chinh=n.chan_ky_chinh,
+                ten_chuc_vu=n.ten_chuc_vu, vai_tro_ky=n.vai_tro_ky,
                 **vi_tri.get(str(n.pk), {}),
             )
     return luot, cap_dau

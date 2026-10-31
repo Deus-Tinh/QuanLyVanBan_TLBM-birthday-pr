@@ -1,5 +1,5 @@
 """
-Chỉnh nghiệp vụ trình ký (#275): văn bản trình ký chọn văn bản đi hoặc nhập văn bản khác, nhãn "Văn bản trình ký"
+Chỉnh nghiệp vụ trình ký (#275): chọn văn bản đi đã đăng ký hoặc tải PDF dự thảo chưa vào sổ, nhãn "Văn bản trình ký"
 trong thông báo/email, tên chức vụ của người ký cấu hình theo Danh mục chức vụ (CBNV).
 """
 from django.contrib.auth import get_user_model

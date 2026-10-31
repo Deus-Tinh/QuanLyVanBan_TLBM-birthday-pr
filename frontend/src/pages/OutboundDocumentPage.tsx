@@ -11,10 +11,20 @@ import ConfirmModal from '@components/common/ConfirmModal';
 import AlertModal from '@components/common/AlertModal';
 import { Button } from '@components/common/Button';
 import apiClient from '@lib/apiClient';
+import { authService } from '@lib/authService';
+import { usePermissions } from '@lib/permissions';
 import { useTranslation } from '@i18n/translate';
 
 export const OutboundDocumentPage: React.FC = () => {
   const { t } = useTranslation();
+  const { can, isSuperuser } = usePermissions();
+  const currentSession = useMemo(() => authService.getSession(), []);
+  const isAdmin = Boolean(isSuperuser || currentSession?.role === 'admin' || currentSession?.username === 'admin');
+
+  const canAdd = Boolean(isAdmin || can('add_vanbandi'));
+  const canImport = Boolean(isAdmin || can('import_vanbandi'));
+  const canExport = Boolean(isAdmin || can('export_vanbandi'));
+
   const [searchParams, setSearchParams] = useSearchParams();
   const loaiVanBanParam = searchParams.get('loai_van_ban');
   const phamViParam = searchParams.get('pham_vi');
@@ -35,6 +45,7 @@ export const OutboundDocumentPage: React.FC = () => {
     page_size: 10,
     loai: 'DI',
     loai_van_ban: loaiVanBanParam || undefined,
+    ho_so: searchParams.get('ho_so') || undefined,
     pham_vi: (phamViParam as 'NOI_BO' | 'HAN_CHE' | 'ALL') || 'NOI_BO',
   });
 
@@ -47,10 +58,14 @@ export const OutboundDocumentPage: React.FC = () => {
     if (currentFilters.den_ngay) nextParams.set('den_ngay', currentFilters.den_ngay);
     if (currentFilters.hieu_luc) nextParams.set('hieu_luc', currentFilters.hieu_luc);
     if (currentFilters.loai_van_ban) nextParams.set('loai_van_ban', String(currentFilters.loai_van_ban));
-    if (currentFilters.ho_so) nextParams.set('ho_so', currentFilters.ho_so);
-    if (currentFilters.pham_vi && currentFilters.pham_vi !== 'NOI_BO') {
-      nextParams.set('pham_vi', String(currentFilters.pham_vi));
+    if (currentFilters.ho_so) {
+      nextParams.set('ho_so', currentFilters.ho_so);
+      const dossierName = searchParams.get('ten_ho_so');
+      if (currentFilters.ho_so === searchParams.get('ho_so') && dossierName) {
+        nextParams.set('ten_ho_so', dossierName);
+      }
     }
+    if (currentFilters.pham_vi) nextParams.set('pham_vi', String(currentFilters.pham_vi));
     if (currentFilters.page && currentFilters.page > 1) nextParams.set('page', String(currentFilters.page));
 
     // Bảo toàn các params trạng thái modal (detail, viewers, action, edit)
@@ -159,6 +174,8 @@ export const OutboundDocumentPage: React.FC = () => {
   const [availableDocTypes, setAvailableDocTypes] = useState<string[]>([]);
   const [availableFolders, setAvailableFolders] = useState<string[]>([]);
   const [folderDocTypesMap, setFolderDocTypesMap] = useState<Record<string, string[]>>({});
+  const [recordDossiers, setRecordDossiers] = useState<Array<{ id: number | string; ten_ho_so: string; so_ky_hieu?: string }>>([]);
+  const [recordDocTypes, setRecordDocTypes] = useState<Array<{ id: number | string; ten_loai: string; ho_so?: number | string; ten_ho_so?: string }>>([]);
   const [allStatsItems, setAllStatsItems] = useState<DocumentItem[]>([]);
 
   // Lấy danh sách các năm thực tế có văn bản đi trong CSDL
@@ -179,6 +196,80 @@ export const OutboundDocumentPage: React.FC = () => {
       const res = await apiClient.get<PaginatedResponse<DocumentItem>>('/api/documents/?loai=DI&page_size=1000');
       const items = res && Array.isArray(res.results) ? res.results : (Array.isArray(res) ? (res as DocumentItem[]) : []);
       setAllStatsItems(items);
+
+      // 2. Lấy danh mục hồ sơ và loại văn bản từ Nhóm 3 (app records) để đồng bộ danh mục hệ thống
+      const recordsFolders: string[] = [];
+      const recordsFolderTypeMap: Record<string, Set<string>> = {};
+
+      try {
+        const dossiersRes = await apiClient.get<unknown>('/api/records/dossiers/?page_size=100');
+        const rawDossiers = Array.isArray(dossiersRes)
+          ? dossiersRes
+          : (dossiersRes as { results?: Array<{ ten_ho_so?: string }>; items?: Array<{ ten_ho_so?: string }> })?.results
+          || (dossiersRes as { results?: Array<{ ten_ho_so?: string }>; items?: Array<{ ten_ho_so?: string }> })?.items
+          || [];
+
+        if (Array.isArray(rawDossiers) && rawDossiers.length > 0) {
+          const parsedDossiers: Array<{ id: number | string; ten_ho_so: string; so_ky_hieu?: string }> = [];
+          rawDossiers.forEach((d) => {
+            const rawD = d as { id?: number | string; ten_ho_so?: string; so_ky_hieu?: string };
+            const name = rawD?.ten_ho_so?.trim();
+            if (name) {
+              recordsFolders.push(name);
+              parsedDossiers.push({
+                id: rawD.id ?? '',
+                ten_ho_so: name,
+                so_ky_hieu: rawD.so_ky_hieu,
+              });
+            }
+          });
+          setRecordDossiers(parsedDossiers);
+        }
+      } catch {
+        // Fallback an toàn nếu API records chưa sẵn sàng
+      }
+
+      try {
+        const docTypesRes = await apiClient.get<unknown>('/api/records/document-types/?page_size=100');
+        const rawDocTypes = Array.isArray(docTypesRes)
+          ? docTypesRes
+          : (docTypesRes as { results?: Array<{ ten_ho_so?: string; ten_loai?: string }>; items?: Array<{ ten_ho_so?: string; ten_loai?: string }> })?.results
+          || (docTypesRes as { results?: Array<{ ten_ho_so?: string; ten_loai?: string }>; items?: Array<{ ten_ho_so?: string; ten_loai?: string }> })?.items
+          || [];
+
+        if (Array.isArray(rawDocTypes) && rawDocTypes.length > 0) {
+          const parsedDocTypes: Array<{ id: number | string; ten_loai: string; ho_so?: number | string; ten_ho_so?: string }> = [];
+          rawDocTypes.forEach((dt) => {
+            const rawDt = dt as { id?: number | string; ten_ho_so?: string; ten_loai?: string; ho_so?: number | string | { id?: number | string } };
+            const folderName = rawDt?.ten_ho_so?.trim();
+            const typeName = rawDt?.ten_loai?.trim();
+            const rawHoSo = rawDt?.ho_so;
+            let hoSoId: number | string | undefined = undefined;
+            if (typeof rawHoSo === 'string' || typeof rawHoSo === 'number') {
+              hoSoId = rawHoSo;
+            } else if (rawHoSo && typeof rawHoSo === 'object' && 'id' in rawHoSo) {
+              hoSoId = rawHoSo.id;
+            }
+            if (typeName) {
+              parsedDocTypes.push({
+                id: rawDt.id ?? '',
+                ten_loai: typeName,
+                ho_so: hoSoId,
+                ten_ho_so: folderName,
+              });
+            }
+            if (folderName && typeName) {
+              if (!recordsFolderTypeMap[folderName]) {
+                recordsFolderTypeMap[folderName] = new Set<string>();
+              }
+              recordsFolderTypeMap[folderName].add(typeName);
+            }
+          });
+          setRecordDocTypes(parsedDocTypes);
+        }
+      } catch {
+        // Fallback an toàn
+      }
 
       // Trích xuất các Loại văn bản và ánh xạ Danh mục hồ sơ -> Loại văn bản thực tế từ các văn bản trong hệ thống
       const extractedTypes = new Set<string>();
@@ -235,13 +326,29 @@ export const OutboundDocumentPage: React.FC = () => {
         }
       });
 
+      // Gộp danh mục hồ sơ: kết hợp hồ sơ từ Nhóm 3 (app records) và hồ sơ thực tế trong văn bản
+      const combinedFoldersSet = new Set<string>([...recordsFolders, ...extractedFolders]);
       const serializableFolderMap: Record<string, string[]> = {};
+
+      // Xây dựng bản đồ ánh xạ Hồ sơ -> Loại văn bản kết hợp
+      combinedFoldersSet.forEach((folder) => {
+        const fromRecords = recordsFolderTypeMap[folder] ? Array.from(recordsFolderTypeMap[folder]) : [];
+        const fromDocuments = folderTypeMapping[folder] ? Array.from(folderTypeMapping[folder]) : [];
+        const combinedTypes = Array.from(new Set([...fromRecords, ...fromDocuments])).sort((a, b) => a.localeCompare(b, 'vi'));
+        if (combinedTypes.length > 0) {
+          serializableFolderMap[folder] = combinedTypes;
+        }
+      });
+
+      // Nếu có hồ sơ trong folderTypeMapping chưa có trong combinedFoldersSet
       Object.entries(folderTypeMapping).forEach(([folder, typeSet]) => {
-        serializableFolderMap[folder] = Array.from(typeSet).sort((a, b) => a.localeCompare(b, 'vi'));
+        if (!serializableFolderMap[folder]) {
+          serializableFolderMap[folder] = Array.from(typeSet).sort((a, b) => a.localeCompare(b, 'vi'));
+        }
       });
 
       setAvailableDocTypes(Array.from(extractedTypes).sort((a, b) => a.localeCompare(b, 'vi')));
-      setAvailableFolders(Array.from(extractedFolders).sort((a, b) => a.localeCompare(b, 'vi')));
+      setAvailableFolders(Array.from(combinedFoldersSet).sort((a, b) => a.localeCompare(b, 'vi')));
       setFolderDocTypesMap(serializableFolderMap);
     } catch {
       // Giữ nguyên trạng thái hiện tại nếu lỗi
@@ -456,7 +563,7 @@ export const OutboundDocumentPage: React.FC = () => {
   const doDelete = async () => {
     if (!pendingDelete) return;
     try {
-      await apiClient.delete(`/api/documents/${pendingDelete.id}/`);
+      await apiClient.delete(`/api/documents/${pendingDelete.id}/?loai=DI`);
       setPendingDelete(null);
       setAlertMsg(`Đã xóa văn bản "${pendingDelete.soHieu}" thành công.`);
       setIsAlertOpen(true);
@@ -507,8 +614,69 @@ export const OutboundDocumentPage: React.FC = () => {
 
   const currentPhamVi = filters.pham_vi || 'NOI_BO';
 
+  // Tra cứu Tên hồ sơ và Tên loại văn bản thân thiện từ danh mục Nhóm 3 khi URL truyền mã ID tham chiếu
+  const resolvedRecordLabels = useMemo(() => {
+    let resolvedDocType = '';
+    let resolvedFolder = '';
+
+    if (filters.loai_van_ban) {
+      const lvStr = String(filters.loai_van_ban).trim();
+      const matchedType = recordDocTypes.find((dt) => String(dt.id) === lvStr);
+      if (matchedType) {
+        resolvedDocType = matchedType.ten_loai;
+        if (matchedType.ten_ho_so) {
+          resolvedFolder = matchedType.ten_ho_so;
+        } else if (matchedType.ho_so) {
+          const matchedDossier = recordDossiers.find((d) => String(d.id) === String(matchedType.ho_so));
+          if (matchedDossier) {
+            resolvedFolder = matchedDossier.ten_ho_so;
+          }
+        }
+      } else if (!/^\d+$/.test(lvStr)) {
+        resolvedDocType = lvStr;
+      }
+    }
+
+    if (!resolvedFolder && filters.ho_so) {
+      const hsStr = String(filters.ho_so).trim();
+      const matchedDossier = recordDossiers.find((d) => String(d.id) === hsStr);
+      if (matchedDossier) {
+        resolvedFolder = matchedDossier.ten_ho_so;
+      } else {
+        const urlTenHoSo = searchParams.get('ten_ho_so');
+        if (urlTenHoSo && urlTenHoSo.trim()) {
+          resolvedFolder = urlTenHoSo.trim();
+        } else if (!/^\d+$/.test(hsStr)) {
+          resolvedFolder = hsStr;
+        }
+      }
+    } else if (!resolvedFolder && searchParams.get('ten_ho_so')) {
+      resolvedFolder = searchParams.get('ten_ho_so')!.trim();
+    }
+
+    return {
+      docTypeName: resolvedDocType,
+      dossierName: resolvedFolder,
+    };
+  }, [filters.loai_van_ban, filters.ho_so, recordDocTypes, recordDossiers, searchParams]);
+
   // Thống kê số lượng: Tổng văn bản đi còn hiệu lực (gộp cả Còn hiệu lực và Còn hiệu lực 1 phần theo đúng phạm vi)
   const countActive = useMemo(() => {
+    // Khi đang tham chiếu từ phân hệ Hồ sơ (có lọc theo loai_van_ban hoặc ho_so):
+    // Đếm theo số lượng văn bản thực tế của tập kết quả tham chiếu theo đúng phạm vi hiện tại
+    if (filters.loai_van_ban || filters.ho_so) {
+      if (totalCount === 0) return 0;
+      if (filters.hieu_luc === 'HIEU_LUC') return totalCount;
+      const activeInCurrent = documents.filter(
+        (d) => d.hieu_luc === 'CON_HIEU_LUC' || d.hieu_luc === 'CON_HIEU_LUC_1_PHAN'
+      ).length;
+      if (totalCount <= documents.length) {
+        return activeInCurrent;
+      }
+      const ratio = documents.length > 0 ? activeInCurrent / documents.length : 1;
+      return Math.round(ratio * totalCount);
+    }
+
     const sourceList = allStatsItems.length > 0 ? allStatsItems : documents;
     return sourceList.filter((d) => {
       const isActive = d.hieu_luc === 'CON_HIEU_LUC' || d.hieu_luc === 'CON_HIEU_LUC_1_PHAN';
@@ -517,7 +685,7 @@ export const OutboundDocumentPage: React.FC = () => {
       const docPhamVi = d.pham_vi || 'NOI_BO';
       return docPhamVi === currentPhamVi;
     }).length;
-  }, [allStatsItems, documents, currentPhamVi]);
+  }, [allStatsItems, documents, currentPhamVi, filters.loai_van_ban, filters.ho_so, filters.hieu_luc, totalCount]);
 
   return (
     <div className="w-full p-2 sm:p-4 md:p-6 animate-in fade-in duration-150">
@@ -537,132 +705,138 @@ export const OutboundDocumentPage: React.FC = () => {
 
         {/* Các nút hành động chính (Thêm mới, Nhập Excel, Xuất Excel, Làm mới) */}
         <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
-            icon="fa-plus"
-            onClick={handleOpenCreate}
-            title={t('documents_incoming_page.addBtn') || 'Thêm mới'}
-          >
-            {t('documents_incoming_page.addBtn') || 'Thêm mới'}
-          </Button>
+          {canAdd && (
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              icon="fa-plus"
+              onClick={handleOpenCreate}
+              title={t('documents_incoming_page.addBtn') || 'Thêm mới'}
+            >
+              {t('documents_incoming_page.addBtn') || 'Thêm mới'}
+            </Button>
+          )}
 
           {/* Dropdown Import Excel */}
-          <div className="relative" ref={importMenuRef}>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              icon="fa-file-excel"
-              onClick={() => {
-                setImportMenuOpen((prev) => !prev);
-                setExportMenuOpen(false);
-              }}
-              className={`transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 ${importMenuOpen ? 'border-primary/50 shadow-xs bg-surface-elevated' : ''}`}
-              title={t('documents_ui.actions.importExcelTitle') || 'Nhập danh sách từ tệp Excel'}
-            >
-              <span>{t('documents_ui.actions.importExcel') || 'Import Excel'}</span>
-              <i className={`fa-solid fa-chevron-down text-[10px] ml-1 text-secondary transition-transform duration-200 ${importMenuOpen ? 'rotate-180' : ''}`} />
-            </Button>
+          {canImport && (
+            <div className="relative" ref={importMenuRef}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                icon="fa-file-excel"
+                onClick={() => {
+                  setImportMenuOpen((prev) => !prev);
+                  setExportMenuOpen(false);
+                }}
+                className={`transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 ${importMenuOpen ? 'border-primary/50 shadow-xs bg-surface-elevated' : ''}`}
+                title={t('documents_ui.actions.importExcelTitle') || 'Nhập danh sách từ tệp Excel'}
+              >
+                <span>{t('documents_ui.actions.importExcel') || 'Import Excel'}</span>
+                <i className={`fa-solid fa-chevron-down text-[10px] ml-1 text-secondary transition-transform duration-200 ${importMenuOpen ? 'rotate-180' : ''}`} />
+              </Button>
 
-            {importMenuOpen && (
-              <div className="absolute left-0 sm:right-0 sm:left-auto top-full mt-2 w-56 p-1.5 bg-surface/95 backdrop-blur-md border border-border-subtle rounded-2xl shadow-xl z-50 animate-in fade-in zoom-in-95 duration-150 space-y-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setImportMenuOpen(false);
-                    setImportPhamVi('NOI_BO');
-                    setIsImportOpen(true);
-                  }}
-                  className="group w-full text-left px-3 py-2.5 text-xs font-semibold text-main hover:text-primary rounded-xl transition-all duration-150 hover:-translate-y-[1px] hover:shadow-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80 flex items-center gap-2.5 cursor-pointer"
-                >
-                  <span className="w-6 h-6 rounded-lg bg-surface-elevated group-hover:bg-primary/10 flex items-center justify-center transition-colors">
-                    <i className="fa-regular fa-file-lines text-secondary group-hover:text-primary text-xs transition-colors" />
-                  </span>
-                  <span>{t('documents_ui.actions.importInternal') || 'Nhập văn bản thường'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setImportMenuOpen(false);
-                    setImportPhamVi('HAN_CHE');
-                    setIsImportOpen(true);
-                  }}
-                  className="group w-full text-left px-3 py-2.5 text-xs font-semibold text-main hover:text-primary rounded-xl transition-all duration-150 hover:-translate-y-[1px] hover:shadow-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80 flex items-center gap-2.5 cursor-pointer"
-                >
-                  <span className="w-6 h-6 rounded-lg bg-surface-elevated group-hover:bg-primary/10 flex items-center justify-center transition-colors">
-                    <i className="fa-solid fa-shield-halved text-secondary group-hover:text-primary text-xs transition-colors" />
-                  </span>
-                  <span>{t('documents_ui.actions.importRestricted') || 'Nhập văn bản hạn chế'}</span>
-                </button>
-              </div>
-            )}
-          </div>
+              {importMenuOpen && (
+                <div className="absolute left-0 sm:right-0 sm:left-auto top-full mt-2 w-56 p-1.5 bg-surface/95 backdrop-blur-md border border-border-subtle rounded-2xl shadow-xl z-50 animate-in fade-in zoom-in-95 duration-150 space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportMenuOpen(false);
+                      setImportPhamVi('NOI_BO');
+                      setIsImportOpen(true);
+                    }}
+                    className="group w-full text-left px-3 py-2.5 text-xs font-semibold text-main hover:text-primary rounded-xl transition-all duration-150 hover:-translate-y-[1px] hover:shadow-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <span className="w-6 h-6 rounded-lg bg-surface-elevated group-hover:bg-primary/10 flex items-center justify-center transition-colors">
+                      <i className="fa-regular fa-file-lines text-secondary group-hover:text-primary text-xs transition-colors" />
+                    </span>
+                    <span>{t('documents_ui.actions.importInternal') || 'Nhập văn bản thường'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportMenuOpen(false);
+                      setImportPhamVi('HAN_CHE');
+                      setIsImportOpen(true);
+                    }}
+                    className="group w-full text-left px-3 py-2.5 text-xs font-semibold text-main hover:text-primary rounded-xl transition-all duration-150 hover:-translate-y-[1px] hover:shadow-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <span className="w-6 h-6 rounded-lg bg-surface-elevated group-hover:bg-primary/10 flex items-center justify-center transition-colors">
+                      <i className="fa-solid fa-shield-halved text-secondary group-hover:text-primary text-xs transition-colors" />
+                    </span>
+                    <span>{t('documents_ui.actions.importRestricted') || 'Nhập văn bản hạn chế'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Dropdown Xuất Excel */}
-          <div className="relative" ref={exportMenuRef}>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              icon="fa-file-export"
-              onClick={() => {
-                setExportMenuOpen((prev) => !prev);
-                setImportMenuOpen(false);
-              }}
-              className={`transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 ${exportMenuOpen ? 'border-primary/50 shadow-xs bg-surface-elevated' : ''}`}
-              title={t('documents_ui.actions.exportExcelTitle') || 'Xuất dữ liệu ra file Excel'}
-            >
-              <span>{t('documents_ui.actions.exportExcel') || 'Xuất Excel'}</span>
-              <i className={`fa-solid fa-chevron-down text-[10px] ml-1 text-secondary transition-transform duration-200 ${exportMenuOpen ? 'rotate-180' : ''}`} />
-            </Button>
+          {canExport && (
+            <div className="relative" ref={exportMenuRef}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                icon="fa-file-export"
+                onClick={() => {
+                  setExportMenuOpen((prev) => !prev);
+                  setImportMenuOpen(false);
+                }}
+                className={`transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 ${exportMenuOpen ? 'border-primary/50 shadow-xs bg-surface-elevated' : ''}`}
+                title={t('documents_ui.actions.exportExcelTitle') || 'Xuất dữ liệu ra file Excel'}
+              >
+                <span>{t('documents_ui.actions.exportExcel') || 'Xuất Excel'}</span>
+                <i className={`fa-solid fa-chevron-down text-[10px] ml-1 text-secondary transition-transform duration-200 ${exportMenuOpen ? 'rotate-180' : ''}`} />
+              </Button>
 
-            {exportMenuOpen && (
-              <div className="absolute left-0 sm:right-0 sm:left-auto top-full mt-2 w-56 p-1.5 bg-surface/95 backdrop-blur-md border border-border-subtle rounded-2xl shadow-xl z-50 animate-in fade-in zoom-in-95 duration-150 space-y-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExportMenuOpen(false);
-                    handleExportExcel('NOI_BO');
-                  }}
-                  className="group w-full text-left px-3 py-2.5 text-xs font-semibold text-main hover:text-primary rounded-xl transition-all duration-150 hover:-translate-y-[1px] hover:shadow-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80 flex items-center gap-2.5 cursor-pointer"
-                >
-                  <span className="w-6 h-6 rounded-lg bg-surface-elevated group-hover:bg-primary/10 flex items-center justify-center transition-colors">
-                    <i className="fa-regular fa-file-lines text-secondary group-hover:text-primary text-xs transition-colors" />
-                  </span>
-                  <span>{t('documents_ui.actions.exportInternal') || 'Xuất văn bản thường'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExportMenuOpen(false);
-                    handleExportExcel('HAN_CHE');
-                  }}
-                  className="group w-full text-left px-3 py-2.5 text-xs font-semibold text-main hover:text-primary rounded-xl transition-all duration-150 hover:-translate-y-[1px] hover:shadow-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80 flex items-center gap-2.5 cursor-pointer"
-                >
-                  <span className="w-6 h-6 rounded-lg bg-surface-elevated group-hover:bg-primary/10 flex items-center justify-center transition-colors">
-                    <i className="fa-solid fa-shield-halved text-secondary group-hover:text-primary text-xs transition-colors" />
-                  </span>
-                  <span>{t('documents_ui.actions.exportRestricted') || 'Xuất văn bản hạn chế'}</span>
-                </button>
-                <div className="h-px bg-border-subtle my-1 mx-2" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExportMenuOpen(false);
-                    handleExportExcel('ALL');
-                  }}
-                  className="group w-full text-left px-3 py-2.5 text-xs font-semibold text-main hover:text-primary rounded-xl transition-all duration-150 hover:-translate-y-[1px] hover:shadow-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80 flex items-center gap-2.5 cursor-pointer"
-                >
-                  <span className="w-6 h-6 rounded-lg bg-surface-elevated group-hover:bg-primary/10 flex items-center justify-center transition-colors">
-                    <i className="fa-solid fa-layer-group text-secondary group-hover:text-primary text-xs transition-colors" />
-                  </span>
-                  <span>{t('documents_ui.actions.exportAll') || 'Xuất tất cả văn bản'}</span>
-                </button>
-              </div>
-            )}
-          </div>
+              {exportMenuOpen && (
+                <div className="absolute left-0 sm:right-0 sm:left-auto top-full mt-2 w-56 p-1.5 bg-surface/95 backdrop-blur-md border border-border-subtle rounded-2xl shadow-xl z-50 animate-in fade-in zoom-in-95 duration-150 space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportMenuOpen(false);
+                      handleExportExcel('NOI_BO');
+                    }}
+                    className="group w-full text-left px-3 py-2.5 text-xs font-semibold text-main hover:text-primary rounded-xl transition-all duration-150 hover:-translate-y-[1px] hover:shadow-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <span className="w-6 h-6 rounded-lg bg-surface-elevated group-hover:bg-primary/10 flex items-center justify-center transition-colors">
+                      <i className="fa-regular fa-file-lines text-secondary group-hover:text-primary text-xs transition-colors" />
+                    </span>
+                    <span>{t('documents_ui.actions.exportInternal') || 'Xuất văn bản thường'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportMenuOpen(false);
+                      handleExportExcel('HAN_CHE');
+                    }}
+                    className="group w-full text-left px-3 py-2.5 text-xs font-semibold text-main hover:text-primary rounded-xl transition-all duration-150 hover:-translate-y-[1px] hover:shadow-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <span className="w-6 h-6 rounded-lg bg-surface-elevated group-hover:bg-primary/10 flex items-center justify-center transition-colors">
+                      <i className="fa-solid fa-shield-halved text-secondary group-hover:text-primary text-xs transition-colors" />
+                    </span>
+                    <span>{t('documents_ui.actions.exportRestricted') || 'Xuất văn bản hạn chế'}</span>
+                  </button>
+                  <div className="h-px bg-border-subtle my-1 mx-2" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportMenuOpen(false);
+                      handleExportExcel('ALL');
+                    }}
+                    className="group w-full text-left px-3 py-2.5 text-xs font-semibold text-main hover:text-primary rounded-xl transition-all duration-150 hover:-translate-y-[1px] hover:shadow-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <span className="w-6 h-6 rounded-lg bg-surface-elevated group-hover:bg-primary/10 flex items-center justify-center transition-colors">
+                      <i className="fa-solid fa-layer-group text-secondary group-hover:text-primary text-xs transition-colors" />
+                    </span>
+                    <span>{t('documents_ui.actions.exportAll') || 'Xuất tất cả văn bản'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           <Button
             type="button"
@@ -745,7 +919,20 @@ export const OutboundDocumentPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <i className="fa-solid fa-filter text-primary" />
             <span>
-              {t('documents_ui.scopeTabs.loaiVanBanFilterNotice') || 'Đang lọc danh sách theo Loại văn bản (từ phân hệ Hồ sơ):'} <strong>#{filters.loai_van_ban}</strong>
+              {t('documents_ui.scopeTabs.loaiVanBanFilterNotice') || 'Đang lọc danh sách theo Loại văn bản (từ phân hệ Hồ sơ):'}{' '}
+              {resolvedRecordLabels.docTypeName ? (
+                <>
+                  <strong className="text-primary font-bold">{resolvedRecordLabels.docTypeName}</strong>{' '}
+                  <strong className="text-primary/70 font-semibold">#{filters.loai_van_ban}</strong>
+                </>
+              ) : (
+                <strong className="text-primary font-bold">#{filters.loai_van_ban}</strong>
+              )}
+              {resolvedRecordLabels.dossierName && (
+                <span className="ml-1 text-secondary font-medium">
+                  (thuộc Danh mục: <strong>{resolvedRecordLabels.dossierName}</strong>)
+                </span>
+              )}
             </span>
           </div>
           <button
@@ -846,6 +1033,8 @@ export const OutboundDocumentPage: React.FC = () => {
         availableFolders={availableFolders}
         availableDocTypes={availableDocTypes}
         folderDocTypesMap={folderDocTypesMap}
+        recordDossiers={recordDossiers}
+        recordDocTypes={recordDocTypes}
         documentType="DI"
       />
 

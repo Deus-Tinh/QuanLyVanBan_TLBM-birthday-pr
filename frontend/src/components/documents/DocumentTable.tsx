@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { DocumentItem, DocumentDetail } from '@app-types/document';
+import { DocumentItem } from '@app-types/document';
 import { Button } from '@components/common/Button';
 import { formatDate } from '@lib/dateUtils';
 import { authService } from '@lib/authService';
-import apiClient from '@lib/apiClient';
-import { getAbsoluteFileUrl } from '@lib/fileUtils';
-import { resolveDocumentApiUrl } from '@lib/routes';
 import { useTranslation } from '@i18n/translate';
 import { useIsMobile } from '@hooks/useIsMobile';
 
@@ -292,26 +289,10 @@ export const DocumentTable: React.FC<DocumentTableProps> = ({
     return pages;
   };
 
-  // Mở tệp đính kèm trực tiếp trong tab mới
-  const handleOpenAttachment = async (e: React.MouseEvent, doc: DocumentItem) => {
+  // Mở tệp đính kèm: chuyển vào Modal chi tiết để xem trước bảo mật (Blob) hoặc tải về an toàn
+  const handleOpenAttachment = (e: React.MouseEvent, doc: DocumentItem) => {
     e.stopPropagation();
-    if (doc.first_attachment_url) {
-      const fullUrl = getAbsoluteFileUrl(doc.first_attachment_url);
-      window.open(fullUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    try {
-      const apiUrl = resolveDocumentApiUrl(doc.id, loai || doc.loai);
-      const res = await apiClient.get<DocumentDetail>(apiUrl);
-      if (res && res.attachments && res.attachments.length > 0 && res.attachments[0].file) {
-        const fullUrl = getAbsoluteFileUrl(res.attachments[0].file);
-        window.open(fullUrl, '_blank', 'noopener,noreferrer');
-      } else {
-        onViewDetail(doc.id);
-      }
-    } catch {
-      onViewDetail(doc.id);
-    }
+    onViewDetail(doc.id);
   };
 
   return (

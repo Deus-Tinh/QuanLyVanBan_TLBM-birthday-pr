@@ -14,6 +14,7 @@ bằng Idempotency-Key lưu ở `khoa_chong_trung_thao_tac` của dòng người
 
 import logging
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
@@ -23,6 +24,7 @@ from ..errors import ConflictError, SigningError
 from ..models import (
     SigningAttempt, SigningKey, SigningRequest, SigningRequestStep, SigningRequestStepSigner, SigningSignature,
 )
+from ..permissions import KY_TRINH_KY, co_quyen
 from ..storage import StorageError, get_storage
 from ..tich_hop import to_chuc
 from . import tep_hoan_tat, thong_bao
@@ -59,8 +61,17 @@ def _dong_cua_toi(luot, nguoi, chi_dang_mo=True):
                            detail="Bạn không có lượt ký đang mở trên hồ sơ này.", status_code=status.HTTP_403_FORBIDDEN)
     if chi_dang_mo and (dong.thoi_diem_mo is None or dong.trang_thai != enums.TrangThaiNguoiKy.CHO_KY):
         raise ConflictError(code="chua_den_luot_ky",
-                            detail="Chưa đến lượt bạn ký (đang chờ ký nháy) hoặc bạn đã xử lý.")
+                            detail="Chưa đến lượt bạn ký vì cấp ký trước chưa hoàn tất, hoặc bạn đã xử lý.")
     return dong
+
+
+def _nguoi_ky_hien_hanh(nguoi):
+    """Đọc khóa tài khoản hiện tại để đổi quyền hoặc khóa tài khoản không bị lách bằng phiên cũ."""
+    nguoi_hien_hanh = get_user_model().objects.select_for_update().filter(pk=nguoi.pk).first()
+    if nguoi_hien_hanh is None or not co_quyen(nguoi_hien_hanh, KY_TRINH_KY):
+        raise SigningError(code="khong_co_quyen", detail="Tài khoản không còn quyền ký.",
+                           status_code=status.HTTP_403_FORBIDDEN)
+    return nguoi_hien_hanh
 
 
 def _thao_tac_lap(yeu_cau, nguoi, khoa_chong_trung):
@@ -100,12 +111,13 @@ def _hoan_tat_neu_du(luot, cap, nguoi, thoi_diem):
     thong_bao.su_kien(yeu_cau, luot, "HOAN_THANH", nguoi)
 
 
-def _chup_anh_chu_ky(nguoi):
+def _chup_anh_chu_ky(nguoi, anh_tu_trinh_duyet=None):
     """
     Snapshot ảnh chữ ký cá nhân tại thời điểm ký (plan mục 3.2): đổi ảnh trong hồ sơ sau đó không làm đổi tệp
-    hoàn tất. Chưa có ảnh (Nhóm 7 chưa cung cấp) hoặc không lưu được thì ký vẫn hợp lệ, tệp hoàn tất in khối chữ.
+    hoàn tất. Ưu tiên ảnh phía server (Nhóm 7, nếu có); chưa có thì dùng ảnh PNG trình duyệt gửi kèm yêu cầu
+    ký (đã kiểm ở serializer, #420). Chưa có ảnh hoặc không lưu được thì ký vẫn hợp lệ, tệp hoàn tất in khối chữ.
     """
-    anh = to_chuc.anh_chu_ky(nguoi)
+    anh = to_chuc.anh_chu_ky(nguoi) or anh_tu_trinh_duyet
     if not anh:
         return "", ""
     try:
@@ -129,13 +141,15 @@ def _kiem_tra_khoa(nguoi, khoa_ky_id, thoi_diem):
 
 
 @transaction.atomic
-def ky(yeu_cau, nguoi, *, khoa_ky, hash_tai_lieu, chu_ky_so, khoa_chong_trung, ghi_chu_ky="", dia_chi_ip=None):
+def ky(yeu_cau, nguoi, *, khoa_ky, hash_tai_lieu, chu_ky_so, khoa_chong_trung, ghi_chu_ky="", dia_chi_ip=None,
+       anh_chu_ky=None):
     if _thao_tac_lap(yeu_cau, nguoi, khoa_chong_trung):
         return SigningRequest.objects.get(pk=yeu_cau.pk)  # ký lặp cùng khóa: trả kết quả lần trước
     luot = _khoa_luot_hien_hanh(yeu_cau)
     if _thao_tac_lap(yeu_cau, nguoi, khoa_chong_trung):  # lượt ký đồng thời cùng khóa đã xử lý xong trước
         return SigningRequest.objects.get(pk=yeu_cau.pk)
     dong = _dong_cua_toi(luot, nguoi)
+    nguoi = _nguoi_ky_hien_hanh(nguoi)
     thoi_diem = timezone.now()
     khoa = _kiem_tra_khoa(nguoi, khoa_ky, thoi_diem)
     if hash_tai_lieu != luot.ma_bam_tai_lieu:
@@ -146,7 +160,7 @@ def ky(yeu_cau, nguoi, *, khoa_ky, hash_tai_lieu, chu_ky_so, khoa_chong_trung, g
                            fields={"chu_ky_so": ["Không xác minh được."]})
     cap = SigningRequestStep.objects.select_for_update().get(pk=dong.buoc_ky_id)
     tre = cap.han_xu_ly is not None and thoi_diem > cap.han_xu_ly
-    vi_tri_anh, ma_bam_anh = _chup_anh_chu_ky(nguoi)
+    vi_tri_anh, ma_bam_anh = _chup_anh_chu_ky(nguoi, anh_chu_ky)
     chu_ky = SigningSignature.objects.create(
         luot_trinh=luot, buoc_ky=dong, khoa_ky=khoa, hash_tai_lieu=hash_tai_lieu, thuat_toan=khoa.thuat_toan,
         chu_ky_so=chu_ky_so, ghi_chu_ky=ghi_chu_ky, ky_tre_han=tre,
@@ -217,29 +231,13 @@ def thu_hoi(yeu_cau, nguoi, *, khoa_chong_trung, dia_chi_ip=None):
     if dong.buoc_ky.trang_thai != enums.TrangThaiCapKy.DANG_KY:
         raise ConflictError(code="cap_da_dong_khong_thu_hoi",
                             detail="Cấp ký đã đóng và luồng đã sang cấp sau; muốn sửa hãy trả lại để sửa.")
-    cap = SigningRequestStep.objects.select_for_update().get(pk=dong.buoc_ky_id)
-    nguoi_cap = list(cap.nguoi_ky_set.select_for_update())
-    if dong.vai_tro_ky == enums.VaiTroKy.KY_NHAY and dong.chan_ky_chinh and any(
-        n.vai_tro_ky == enums.VaiTroKy.KY_CHINH and n.trang_thai == enums.TrangThaiNguoiKy.DA_KY for n in nguoi_cap
-    ):
-        raise ConflictError(code="ky_chinh_da_ky",
-                            detail="Ký chính cùng cấp đã ký trên cơ sở ký nháy này; không thu hồi được.")
+    SigningRequestStep.objects.select_for_update().get(pk=dong.buoc_ky_id)
     chu_ky_cu = dong.chu_ky_hien_hanh_id
     dong.trang_thai = enums.TrangThaiNguoiKy.CHO_KY
     dong.ngay_ky = None
     dong.chu_ky_hien_hanh = None
     dong.khoa_chong_trung_thao_tac = khoa_chong_trung
     dong.save(update_fields=["trang_thai", "ngay_ky", "chu_ky_hien_hanh", "khoa_chong_trung_thao_tac"])
-    if dong.vai_tro_ky == enums.VaiTroKy.KY_NHAY and dong.chan_ky_chinh:
-        # Ký nháy chặn quay về chờ ký: khóa lại ký chính đã mở mà chưa ký (plan LUONG-08)
-        for n in nguoi_cap:
-            if (
-                n.vai_tro_ky == enums.VaiTroKy.KY_CHINH
-                and n.trang_thai == enums.TrangThaiNguoiKy.CHO_KY
-                and n.thoi_diem_mo is not None
-            ):
-                n.thoi_diem_mo = None
-                n.save(update_fields=["thoi_diem_mo"])
     ghi_nhat_ky(nguoi, LOAI, dong.pk, "THU_HOI_CHU_KY", trinh_ky=yeu_cau, luot_trinh=luot, buoc_ky=dong,
                 trang_thai_truoc=enums.TrangThaiNguoiKy.DA_KY, trang_thai_sau=dong.trang_thai,
                 dia_chi_ip=dia_chi_ip, du_lieu_kem_theo={"chu_ky_thu_hoi": chu_ky_cu})

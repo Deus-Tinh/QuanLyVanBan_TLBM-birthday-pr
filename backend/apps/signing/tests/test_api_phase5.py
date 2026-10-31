@@ -49,7 +49,7 @@ class ProcessApiTests(ApiBase):
                 {"cap_ky": 1, "ten_cap_ky": "Trưởng phòng", "thu_tu": 1,
                  "nguoi_ky": [{"nguoi_ky": self.u2.pk, "thu_tu": 1}]},
                 {"cap_ky": 2, "ten_cap_ky": "Giám đốc", "thu_tu": 2,
-                 "nguoi_ky": [{"chuc_vu_id": self.position.pk, "thu_tu": 1, "vai_tro_ky": "KY_NHAY", "chan_ky_chinh": False}]},
+                 "nguoi_ky": [{"chuc_vu_id": self.position.pk, "thu_tu": 1}]},
             ],
         }
         data.update(kw)
@@ -75,8 +75,7 @@ class ProcessApiTests(ApiBase):
             "update_at", "cap_ky", "so_ho_so",
         })
         self.assertEqual([c["thu_tu"] for c in body["cap_ky"]], [1, 2])
-        self.assertEqual(body["cap_ky"][1]["nguoi_ky"][0]["vai_tro_ky"], "KY_NHAY")
-        self.assertFalse(body["cap_ky"][1]["nguoi_ky"][0]["chan_ky_chinh"])
+        self.assertEqual(body["cap_ky"][1]["nguoi_ky"][0]["vai_tro_ky"], "KY_CHINH")
 
     def test_validation_errors_grouped_by_field(self):
         response = self.c1.post(f"{BASE}/quy-trinh/", {"ten_quy_trinh": "x", "pham_vi": "SAI"}, format="json")

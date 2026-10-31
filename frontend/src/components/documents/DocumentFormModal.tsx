@@ -7,6 +7,7 @@ import { DocumentDetail, DocumentItem, DocumentStatus, PaginatedResponse } from 
 import { Button } from '@components/common';
 import AlertModal from '@components/common/AlertModal';
 import { useTranslation } from '@i18n/translate';
+import { usePermissions } from '@lib/permissions';
 
 export type InitialDocType =
   | DocumentItem
@@ -329,11 +330,20 @@ function buildInitialForm(initDocInput?: InitialDocType | DocumentFormInput | nu
 
 export default function DocumentFormModal({ open, onClose, initial, onSaved, defaultLoai = 'DEN' }: Props) {
   const { t } = useTranslation();
+  const { can } = usePermissions();
   const currentSession = useMemo(() => authService.getSession(), []);
   const isAdmin = currentSession?.role === 'admin' || currentSession?.username === 'admin';
   const initDoc = initial as (Partial<DocumentDetail> & Record<string, unknown>) | null | undefined;
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState<FormState>(() => buildInitialForm(initial, defaultLoai));
+
+  // Phân quyền đổi hiệu lực (Nhóm 7 contract: change_hieu_luc_vanbanden / change_hieu_luc_vanbandi)
+  const isDi = form.loai === 'DI';
+  const hasHieuLucPerm = Boolean(
+    isAdmin ||
+    can(isDi ? 'change_hieu_luc_vanbandi' : 'change_hieu_luc_vanbanden') ||
+    Boolean(initDoc?.can_change_hieu_luc)
+  );
   const [units, setUnits] = useState<string[]>(DEFAULT_UNITS);
   const [staff, setStaff] = useState<UserOption[]>([]);
   const [isStaffLoading, setIsStaffLoading] = useState(false);
@@ -348,6 +358,10 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
 
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertMsg, setAlertMsg] = useState('');
+
+  // Danh mục hồ sơ & loại văn bản động nạp từ Nhóm 3 (app records)
+  const [dynamicFolders, setDynamicFolders] = useState<string[]>([]);
+  const [dynamicFolderDocTypesMap, setDynamicFolderDocTypesMap] = useState<Record<string, string[]>>({});
 
   // Gợi ý và tìm kiếm văn bản thay thế (hỗ trợ chọn nhiều văn bản cùng hệ & cùng phạm vi)
   const [replacementSuggestions, setReplacementSuggestions] = useState<SuggestedDoc[]>([]);
@@ -411,15 +425,40 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
 
   async function fetchUnits() {
     try {
-      // 1. Ưu tiên nạp trực tiếp từ danh mục phòng ban CSDL (organizations_donvi)
-      const res = await apiClient.get<PaginatedResponse<{ id: number; ten: string }> | { id: number; ten: string }[]>(
-        '/api/organizations/units/?page_size=100'
-      );
+      // 1. Ưu tiên nạp trực tiếp toàn bộ danh mục phòng ban CSDL (organizations_donvi)
+      const res = await apiClient.get<
+        PaginatedResponse<{ id: number; ten?: string; name?: string; khoi_ten?: string }> |
+        Array<{ id: number; ten?: string; name?: string; khoi_ten?: string } | string>
+      >('/api/organizations/units/?all=true');
       const items = Array.isArray(res) ? res : res?.results || [];
-      const depts = items.map(d => d.ten?.trim()).filter(Boolean) as string[];
-      if (depts.length > 0) {
-        setUnits(Array.from(new Set(depts)));
-        return;
+      if (items.length > 0) {
+        // Đếm số lần xuất hiện của từng tên phòng ban để phát hiện các đơn vị trùng tên
+        const nameCounts = new Map<string, number>();
+        items.forEach(item => {
+          const rawName = typeof item === 'string' ? item.trim() : (item.ten || item.name)?.trim();
+          if (rawName) {
+            nameCounts.set(rawName, (nameCounts.get(rawName) || 0) + 1);
+          }
+        });
+
+        // Định dạng tên: nếu trùng tên giữa các khối thì gắn thêm tên khối trực thuộc để phân biệt và hiển thị đủ 100% số lượng đơn vị
+        const depts = items
+          .map(item => {
+            if (typeof item === 'string') return item.trim();
+            const rawName = (item.ten || item.name)?.trim();
+            if (!rawName) return null;
+            if ((nameCounts.get(rawName) || 0) > 1 && item.khoi_ten?.trim()) {
+              return `${rawName} (${item.khoi_ten.trim()})`;
+            }
+            return rawName;
+          })
+          .filter(Boolean) as string[];
+
+        const uniqueDepts = Array.from(new Set(depts));
+        if (uniqueDepts.length > 0) {
+          setUnits(uniqueDepts);
+          return;
+        }
       }
     } catch {
       // Fallback nếu endpoint organizations chưa sẵn sàng
@@ -448,9 +487,11 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
       return;
     }
     setIsStaffLoading(true);
+    // Bóc tách tên gốc nếu có kèm tên khối, ví dụ: "Lãnh đạo khối (KHỐI HỖ TRỢ)" -> "Lãnh đạo khối"
+    const cleanUnit = unit.replace(/\s*\([^)]*\)$/, '').trim();
     try {
       const data = await apiClient.get<UserOption[] | PaginatedResponse<UserOption>>(
-        `/api/accounts/staffs/?department=${encodeURIComponent(unit)}`
+        `/api/accounts/staffs/?department=${encodeURIComponent(cleanUnit)}`
       );
       const list: UserOption[] = Array.isArray(data) ? data : data?.results || [];
       if (list.length > 0) {
@@ -462,7 +503,7 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
     } finally {
       setIsStaffLoading(false);
     }
-    setStaff(MOCK_STAFF_BY_UNIT[unit] || []);
+    setStaff(MOCK_STAFF_BY_UNIT[cleanUnit] || MOCK_STAFF_BY_UNIT[unit] || []);
   }
 
   useEffect(() => {
@@ -507,6 +548,58 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
         } else {
           // Bắt buộc chọn đơn vị trước, không nạp trước tất cả cán bộ khi chưa chọn đơn vị
           setStaff([]);
+        }
+      });
+
+      // Tự động nạp danh mục hồ sơ và loại văn bản từ Nhóm 3 (app records)
+      Promise.resolve().then(async () => {
+        if (cancelled) return;
+        try {
+          const dossiersRes = await apiClient.get<unknown>('/api/records/dossiers/?page_size=100');
+          const rawDossiers = Array.isArray(dossiersRes)
+            ? dossiersRes
+            : (dossiersRes as { results?: Array<{ ten_ho_so?: string }>; items?: Array<{ ten_ho_so?: string }> })?.results
+            || (dossiersRes as { results?: Array<{ ten_ho_so?: string }>; items?: Array<{ ten_ho_so?: string }> })?.items
+            || [];
+
+          if (Array.isArray(rawDossiers) && rawDossiers.length > 0 && !cancelled) {
+            const folderNames = rawDossiers
+              .map((d) => d?.ten_ho_so?.trim())
+              .filter((name): name is string => Boolean(name));
+            if (folderNames.length > 0) {
+              setDynamicFolders(folderNames);
+            }
+          }
+        } catch {
+          // Fallback an toàn
+        }
+
+        try {
+          const docTypesRes = await apiClient.get<unknown>('/api/records/document-types/?page_size=100');
+          const rawDocTypes = Array.isArray(docTypesRes)
+            ? docTypesRes
+            : (docTypesRes as { results?: Array<{ ten_ho_so?: string; ten_loai?: string }>; items?: Array<{ ten_ho_so?: string; ten_loai?: string }> })?.results
+            || (docTypesRes as { results?: Array<{ ten_ho_so?: string; ten_loai?: string }>; items?: Array<{ ten_ho_so?: string; ten_loai?: string }> })?.items
+            || [];
+
+          if (Array.isArray(rawDocTypes) && rawDocTypes.length > 0 && !cancelled) {
+            const mapping: Record<string, string[]> = {};
+            rawDocTypes.forEach((dt) => {
+              const folderName = dt?.ten_ho_so?.trim();
+              const typeName = dt?.ten_loai?.trim();
+              if (folderName && typeName) {
+                if (!mapping[folderName]) {
+                  mapping[folderName] = [];
+                }
+                if (!mapping[folderName].includes(typeName)) {
+                  mapping[folderName].push(typeName);
+                }
+              }
+            });
+            setDynamicFolderDocTypesMap(mapping);
+          }
+        } catch {
+          // Fallback an toàn
         }
       });
 
@@ -1316,10 +1409,15 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                     required
                   >
                     <option value="">{t('documents_ui.formModal.dossierSelectPlaceholder') || '-- Chọn danh mục hồ sơ nội bộ --'}</option>
-                    {Object.keys(DEFAULT_INTERNAL_FOLDERS).map(f => (
-                      <option key={f} value={f}>{f}</option>
-                    ))}
-                    {form.danh_muc_ho_so && !DEFAULT_INTERNAL_FOLDERS[form.danh_muc_ho_so] && (
+                    {(() => {
+                      const baseList = dynamicFolders.length > 0
+                        ? Array.from(new Set([...dynamicFolders, ...Object.keys(DEFAULT_INTERNAL_FOLDERS)]))
+                        : Object.keys(DEFAULT_INTERNAL_FOLDERS);
+                      return baseList.map(f => (
+                        <option key={f} value={f}>{f}</option>
+                      ));
+                    })()}
+                    {form.danh_muc_ho_so && !dynamicFolders.includes(form.danh_muc_ho_so) && !DEFAULT_INTERNAL_FOLDERS[form.danh_muc_ho_so] && (
                       <option value={form.danh_muc_ho_so}>{form.danh_muc_ho_so}</option>
                     )}
                   </select>
@@ -1367,15 +1465,25 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                         ? (t('documents_ui.formModal.docTypePromptSelect') || '— Vui lòng chọn danh mục hồ sơ trước —')
                         : (t('documents_ui.formModal.docTypeSelectPlaceholder') || '-- Chọn loại văn bản --')}
                     </option>
-                    {form.danh_muc_ho_so?.trim() &&
-                      (DEFAULT_INTERNAL_FOLDERS[form.danh_muc_ho_so] || DEFAULT_DOC_TYPES).map(tOpt => (
-                        <option key={tOpt} value={tOpt}>{tOpt}</option>
-                      ))}
-                    {form.ten_loai_van_ban &&
-                      form.danh_muc_ho_so?.trim() &&
-                      !(DEFAULT_INTERNAL_FOLDERS[form.danh_muc_ho_so] || DEFAULT_DOC_TYPES).includes(form.ten_loai_van_ban) && (
-                        <option value={form.ten_loai_van_ban}>{form.ten_loai_van_ban}</option>
-                      )}
+                    {(() => {
+                      const dynamicTypes = form.danh_muc_ho_so ? dynamicFolderDocTypesMap[form.danh_muc_ho_so] : null;
+                      const allowedTypes = (dynamicTypes && dynamicTypes.length > 0)
+                        ? dynamicTypes
+                        : (DEFAULT_INTERNAL_FOLDERS[form.danh_muc_ho_so] || DEFAULT_DOC_TYPES);
+                      return (
+                        <>
+                          {form.danh_muc_ho_so?.trim() &&
+                            allowedTypes.map(tOpt => (
+                              <option key={tOpt} value={tOpt}>{tOpt}</option>
+                            ))}
+                          {form.ten_loai_van_ban &&
+                            form.danh_muc_ho_so?.trim() &&
+                            !allowedTypes.includes(form.ten_loai_van_ban) && (
+                              <option value={form.ten_loai_van_ban}>{form.ten_loai_van_ban}</option>
+                            )}
+                        </>
+                      );
+                    })()}
                   </select>
                 )}
               </div>
@@ -1718,6 +1826,8 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                   </div>
 
                   <select
+                    disabled={!hasHieuLucPerm}
+                    title={!hasHieuLucPerm ? (t('documents_ui.formModal.noHieuLucPermission') || 'Chỉ Quản trị viên hoặc Văn thư mới có quyền thay đổi hiệu lực') : undefined}
                     value={form.hieu_luc === 'HET_VA_THAY_THE' ? 'HET_HIEU_LUC' : form.hieu_luc}
                     onChange={e => {
                       const newHieuLuc = e.target.value as FormState['hieu_luc'];
@@ -1731,12 +1841,14 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                         setShowReplacementDropdown(false);
                       }
                     }}
-                    className={`w-full text-sm rounded-xl pl-8 pr-8 py-2 font-semibold transition-all duration-200 border cursor-pointer ${
-                      form.hieu_luc === 'CON_HIEU_LUC'
-                        ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 shadow-xs'
+                    className={`w-full text-sm rounded-xl pl-8 pr-8 py-2 font-semibold transition-all duration-200 border ${
+                      !hasHieuLucPerm
+                        ? 'opacity-65 cursor-not-allowed bg-slate-100 dark:bg-slate-800 border-border-subtle text-muted'
+                        : form.hieu_luc === 'CON_HIEU_LUC'
+                        ? 'cursor-pointer bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 shadow-xs'
                         : form.hieu_luc === 'CON_HIEU_LUC_1_PHAN'
-                        ? 'bg-purple-500/10 border-purple-500/40 text-purple-700 dark:text-purple-400 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 shadow-xs'
-                        : 'bg-rose-500/10 border-rose-500/40 text-rose-700 dark:text-rose-400 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 shadow-xs'
+                        ? 'cursor-pointer bg-purple-500/10 border-purple-500/40 text-purple-700 dark:text-purple-400 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 shadow-xs'
+                        : 'cursor-pointer bg-rose-500/10 border-rose-500/40 text-rose-700 dark:text-rose-400 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 shadow-xs'
                     }`}
                   >
                     <option value="CON_HIEU_LUC" className="bg-surface text-emerald-600 font-semibold">
@@ -1749,6 +1861,12 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                       {t('documents_ui.formModal.statusInactive') || 'Hết hiệu lực'}
                     </option>
                   </select>
+                  {!hasHieuLucPerm && (
+                    <p className="text-[11px] text-muted mt-1 italic flex items-center gap-1">
+                      <i className="fa-solid fa-lock text-[10px]" />
+                      {t('documents_ui.formModal.noHieuLucPermission') || 'Chỉ Quản trị viên hoặc Văn thư mới có quyền thay đổi trạng thái hiệu lực'}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1759,18 +1877,23 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                 </label>
                 <input
                   type="date"
+                  disabled={!hasHieuLucPerm}
+                  title={!hasHieuLucPerm ? (t('documents_ui.formModal.noHieuLucPermission') || 'Chỉ Quản trị viên hoặc Văn thư mới có quyền thay đổi hiệu lực') : undefined}
                   value={form.ngay_het_hieu_luc}
                   onChange={e => setForm({ ...form, ngay_het_hieu_luc: e.target.value })}
-                  className="w-full text-sm bg-surface border border-border-subtle rounded-xl px-3 py-2 text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-fast"
+                  className={`w-full text-sm bg-surface border border-border-subtle rounded-xl px-3 py-2 text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-fast ${
+                    !hasHieuLucPerm ? 'opacity-65 cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''
+                  }`}
                 />
               </div>
 
               {/* Tùy chọn thay thế cho văn bản khác khi trạng thái Còn hiệu lực hoặc Còn hiệu lực 1 phần */}
               {(form.hieu_luc === 'CON_HIEU_LUC' || form.hieu_luc === 'CON_HIEU_LUC_1_PHAN') && (
                 <div className="col-span-12 pt-1">
-                  <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                  <label className={`inline-flex items-center gap-2 select-none ${!hasHieuLucPerm && !isReplacingOther ? 'opacity-65 cursor-not-allowed' : 'cursor-pointer'}`}>
                     <input
                       type="checkbox"
+                      disabled={!hasHieuLucPerm && !isReplacingOther}
                       checked={isReplacingOther}
                       onChange={e => {
                         setIsReplacingOther(e.target.checked);
@@ -2302,15 +2425,15 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                   {existingAttachments.map(att => (
                     <div
                       key={att.id}
-                      className="flex items-center justify-between p-2.5 bg-surface border border-border-subtle rounded-xl text-xs"
+                      className="flex items-center justify-between p-2.5 bg-surface border border-border-subtle rounded-xl text-xs overflow-hidden min-w-0"
                     >
-                      <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                         <i className={`${getFileIcon(att.file_name)} text-sm shrink-0`} />
-                        <span className="truncate text-main font-medium" title={att.file_name}>
+                        <span className="truncate text-main font-medium min-w-0 flex-1" title={att.file_name}>
                           {att.file_name}
                         </span>
                         {att.file_size && (
-                          <span className="text-xs text-muted shrink-0">
+                          <span className="text-xs text-muted shrink-0 whitespace-nowrap">
                             ({formatFileSize(att.file_size)})
                           </span>
                         )}
@@ -2400,14 +2523,14 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                     {files.map((file, idx) => (
                       <div
                         key={idx}
-                        className="flex items-center justify-between p-2 px-3 bg-surface border border-border-subtle rounded-xl text-xs"
+                        className="flex items-center justify-between p-2 px-3 bg-surface border border-border-subtle rounded-xl text-xs overflow-hidden min-w-0"
                       >
-                        <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                           <i className={`${getFileIcon(file.name)} text-sm shrink-0`} />
-                          <span className="truncate text-main font-medium" title={file.name}>
+                          <span className="truncate text-main font-medium min-w-0 flex-1" title={file.name}>
                             {file.name}
                           </span>
-                          <span className="text-xs text-muted shrink-0">
+                          <span className="text-xs text-muted shrink-0 whitespace-nowrap">
                             ({formatFileSize(file.size)})
                           </span>
                         </div>

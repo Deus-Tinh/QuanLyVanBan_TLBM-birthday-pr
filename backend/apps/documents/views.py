@@ -13,6 +13,7 @@ from django.db import models
 from django.db.models import Max, Q
 from django.http import HttpResponse
 import os
+from pathlib import Path
 import mimetypes
 from urllib.parse import quote
 from django.conf import settings
@@ -183,6 +184,95 @@ def can_create_document(user, loai="DEN"):
     return False
 
 
+def can_import_document(user, loai="DEN"):
+    """Kiểm tra quyền import văn bản (RBAC import_vanbanden, import_vanbandi)."""
+    if not user or not user.is_authenticated:
+        return False
+    if is_admin_user(user):
+        return True
+    model_name = "vanbandi" if str(loai).upper() in ("DI", "VANBANDI") else "vanbanden"
+    perm_code = f"import_{model_name}"
+
+    try:
+        if (
+            user.has_perm(f"documents.{perm_code}")
+            or user.has_perm(perm_code)
+        ):
+            return True
+        perms = getattr(user, "_user_permissions_cache", None) or set()
+        if any(perm_code in str(p) for p in perms):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def can_export_document(user, loai="DEN"):
+    """Kiểm tra quyền xuất Excel văn bản (RBAC export_vanbanden, export_vanbandi)."""
+    if not user or not user.is_authenticated:
+        return False
+    if is_admin_user(user):
+        return True
+    model_name = "vanbandi" if str(loai).upper() in ("DI", "VANBANDI") else "vanbanden"
+    perm_code = f"export_{model_name}"
+
+    try:
+        if (
+            user.has_perm(f"documents.{perm_code}")
+            or user.has_perm(perm_code)
+        ):
+            return True
+        perms = getattr(user, "_user_permissions_cache", None) or set()
+        if any(perm_code in str(p) for p in perms):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def can_change_hieu_luc(user, loai="DEN"):
+    """
+    Kiểm tra quyền thay đổi trạng thái hiệu lực của văn bản.
+    Quyền: documents.change_hieu_luc_vanbanden / documents.change_hieu_luc_vanbandi.
+    Mặc định cho Admin và Văn thư (VT).
+    """
+    if not user or not user.is_authenticated:
+        return False
+    if is_admin_user(user):
+        return True
+
+    profile = getattr(user, "profile", None)
+    if profile and getattr(profile, "role", None) in ("admin", "vt", "vanthu", "van_thu"):
+        return True
+
+    if getattr(user, "role", None) in ("admin", "vt", "vanthu", "van_thu"):
+        return True
+
+    try:
+        user_groups = {g.name.lower() for g in user.groups.all()}
+        if any(vt in user_groups for vt in ("vt", "văn thư", "van thu", "vanthu", "admin", "quản trị")):
+            return True
+    except Exception:
+        pass
+
+    model_name = "vanbandi" if str(loai).upper() in ("DI", "VANBANDI") else "vanbanden"
+    perm_code = f"change_hieu_luc_{model_name}"
+
+    try:
+        if (
+            user.has_perm(f"documents.{perm_code}")
+            or user.has_perm(perm_code)
+        ):
+            return True
+        perms = getattr(user, "_user_permissions_cache", None) or set()
+        if any(perm_code in str(p) for p in perms):
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
 def can_delete_document(user, instance):
     """Kiểm tra quyền xóa văn bản."""
     if not user or not user.is_authenticated:
@@ -276,6 +366,17 @@ class DocumentViewSet(viewsets.ViewSet):
         raw_data = getattr(self.request, "data", None)
         data_loai = raw_data.get("loai") if (raw_data and hasattr(raw_data, "get")) else None
         loai = self.request.query_params.get("loai") or self.request.query_params.get("type") or data_loai
+
+        # Fallback suy luận loai từ referer nếu request không truyền kèm param
+        if not loai and hasattr(self.request, "headers"):
+            referer = (self.request.headers.get("referer") or "").lower()
+            if "van-ban-di" in referer or "outbound" in referer:
+                loai = "DI"
+            elif "van-ban-den" in referer or "inbound" in referer:
+                loai = "DEN"
+            elif "van-ban-mat" in referer or "confidential" in referer:
+                loai = "MAT"
+
         found_doc = None
         if loai:
             model = get_document_model(loai)
@@ -289,7 +390,8 @@ class DocumentViewSet(viewsets.ViewSet):
                     break
 
         if not found_doc:
-            for model in (VanBanDen, VanBanDi, VanBanMat):
+            order = (VanBanDi, VanBanDen, VanBanMat) if str(loai).upper() in ("DI", "VANBANDI") else (VanBanDen, VanBanDi, VanBanMat)
+            for model in order:
                 obj = model.objects.filter(pk=pk).first()
                 if obj:
                     found_doc = obj
@@ -519,9 +621,32 @@ class DocumentViewSet(viewsets.ViewSet):
             with att.file.open("rb") as stored:
                 content = stored.read()
         except (FileNotFoundError, OSError):
-            raise NotFound("Tệp không còn trên máy chủ.")
-        response = HttpResponse(content, content_type="application/octet-stream")
-        response["Content-Disposition"] = f'attachment; filename="{att.name}"'
+            content = None
+            raw_path = str(att.file.name or getattr(att, "path", "") or "").replace("\\", "/")
+            if raw_path.startswith("oldfile/"):
+                raw_path = raw_path[len("oldfile/"):]
+            for root_val in [
+                getattr(settings, "OLDFILE_STORAGE_ROOT", None),
+                getattr(settings, "DOCUMENT_STORAGE_ROOT", None),
+                getattr(settings, "MEDIA_ROOT", None),
+            ]:
+                if root_val:
+                    cand = Path(root_val) / raw_path.lstrip("/")
+                    if cand.exists() and cand.is_file():
+                        with open(cand, "rb") as f:
+                            content = f.read()
+                        break
+            if content is None:
+                raise NotFound("Tệp không còn trên máy chủ.")
+
+        import mimetypes
+        from urllib.parse import quote
+        content_type, _ = mimetypes.guess_type(att.name)
+        if not content_type:
+            content_type = "application/octet-stream"
+        response = HttpResponse(content, content_type=content_type)
+        encoded_name = quote(att.name)
+        response["Content-Disposition"] = f'attachment; filename="{att.name}"; filename*=UTF-8\'\'{encoded_name}'
         return response
 
     @action(detail=True, methods=["get"], url_path=r"download/(?P<tep_id>[0-9]+)")
@@ -579,6 +704,10 @@ class DocumentViewSet(viewsets.ViewSet):
         loai = str(raw_loai).strip().upper()
         pham_vi = str(raw_pham_vi).strip().upper()
 
+        if loai in ("MAT", "VANBANMAT"):
+            loai = "DEN"
+            pham_vi = "HAN_CHE"
+
         excel_file = generate_excel_template(loai, pham_vi=pham_vi)
         scope_suffix = "HanChe" if pham_vi in ("HAN_CHE", "HẠN CHẾ") else "NoiBo"
         filename = f"Mau_VanBan_{loai}_{scope_suffix}_{timezone.now().strftime('%Y%m%d')}.xlsx"
@@ -603,7 +732,7 @@ class DocumentViewSet(viewsets.ViewSet):
         raw_pham_vi = request.data.get("pham_vi") or request.query_params.get("pham_vi")
         loai = str(raw_loai).strip().upper()
 
-        if not can_create_document(request.user, loai):
+        if not can_import_document(request.user, loai):
             raise PermissionDenied("Bạn không có quyền import tạo văn bản mới. Vui lòng liên hệ Quản trị viên.")
 
         if not file_obj:
@@ -612,7 +741,8 @@ class DocumentViewSet(viewsets.ViewSet):
         if not file_obj.name.endswith((".xlsx", ".xls")):
             return Response({"error": "Chỉ chấp nhận file Excel (.xlsx, .xls)."}, status=status.HTTP_400_BAD_REQUEST)
 
-        result = import_from_excel(file_obj, loai, request.user, pham_vi=raw_pham_vi)
+        attachments = request.FILES.getlist("attachments") or request.FILES.getlist("files")
+        result = import_from_excel(file_obj, loai, request.user, pham_vi=raw_pham_vi, attachments=attachments)
         if result["created"] > 0:
             return Response(
                 {
@@ -647,6 +777,9 @@ class DocumentViewSet(viewsets.ViewSet):
         """GET /api/documents/export/?loai=DEN"""
         raw_loai = request.query_params.get("loai") or request.query_params.get("type", "DEN")
         loai = str(raw_loai).strip().upper()
+
+        if not can_export_document(request.user, loai):
+            raise PermissionDenied("Bạn không có quyền xuất danh sách văn bản. Vui lòng liên hệ Quản trị viên.")
 
         model = get_document_model(loai)
         qs = self._get_queryset_for_model(model)
@@ -914,7 +1047,8 @@ class VanBanDiViewSet(viewsets.ModelViewSet):
             return Response({"error": "Vui lòng chọn file Excel."}, status=status.HTTP_400_BAD_REQUEST)
         if not file_obj.name.endswith((".xlsx", ".xls")):
             return Response({"error": "Chỉ chấp nhận file Excel (.xlsx, .xls)."}, status=status.HTTP_400_BAD_REQUEST)
-        result = import_from_excel(file_obj, "DI", request.user, pham_vi=raw_pham_vi)
+        attachments = request.FILES.getlist("attachments") or request.FILES.getlist("files")
+        result = import_from_excel(file_obj, "DI", request.user, pham_vi=raw_pham_vi, attachments=attachments)
         if result["created"] > 0:
             return Response(
                 {
@@ -1072,7 +1206,8 @@ class VanBanMatViewSet(viewsets.ModelViewSet):
             return Response({"error": "Vui lòng chọn file Excel."}, status=status.HTTP_400_BAD_REQUEST)
         if not file_obj.name.endswith((".xlsx", ".xls")):
             return Response({"error": "Chỉ chấp nhận file Excel (.xlsx, .xls)."}, status=status.HTTP_400_BAD_REQUEST)
-        result = import_from_excel(file_obj, "MAT", request.user)
+        attachments = request.FILES.getlist("attachments") or request.FILES.getlist("files")
+        result = import_from_excel(file_obj, "MAT", request.user, attachments=attachments)
         if result["created"] > 0:
             return Response(
                 {

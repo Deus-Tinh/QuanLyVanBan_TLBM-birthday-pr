@@ -273,6 +273,27 @@ describe('DocumentTable Component', () => {
     expect(onViewDetail).toHaveBeenCalledWith(1);
   });
 
+  it('calls onViewDetail when clicking on the attachment count button', () => {
+    const onViewDetail = vi.fn();
+    render(
+      <DocumentTable
+        documents={mockDocuments}
+        totalCount={2}
+        page={1}
+        pageSize={10}
+        onPageChange={vi.fn()}
+        onViewDetail={onViewDetail}
+        onViewHistory={vi.fn()}
+      />
+    );
+
+    const attachmentBtn = screen.getByText(/2 tệp đính kèm/i);
+    expect(attachmentBtn).toBeInTheDocument();
+
+    fireEvent.click(attachmentBtn);
+    expect(onViewDetail).toHaveBeenCalledWith(1);
+  });
+
   it('truncates multiple replacement documents with ... (+X) and shows full tooltip', () => {
     const multiDoc: DocumentItem = {
       id: 99,

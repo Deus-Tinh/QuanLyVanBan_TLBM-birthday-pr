@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { DocumentItem, DocumentFilterParams, PaginatedResponse } from '@app-types/document';
 import FilterBar from '@components/documents/FilterBar';
@@ -11,10 +11,20 @@ import AlertModal from '@components/common/AlertModal';
 import ConfirmModal from '@components/common/ConfirmModal';
 import { Button } from '@components/common/Button';
 import apiClient from '@lib/apiClient';
+import { authService } from '@lib/authService';
+import { usePermissions } from '@lib/permissions';
 import { useTranslation } from '@i18n/translate';
 
 export const ConfidentialDocumentPage: React.FC = () => {
   const { t } = useTranslation();
+  const { can, isSuperuser } = usePermissions();
+  const currentSession = useMemo(() => authService.getSession(), []);
+  const isAdmin = Boolean(isSuperuser || currentSession?.role === 'admin' || currentSession?.username === 'admin');
+
+  const canAdd = Boolean(isAdmin || can('add_vanbanden') || can('add_vanbandi'));
+  const canImport = Boolean(isAdmin || can('import_vanbanden') || can('import_vanbandi'));
+  const canExport = Boolean(isAdmin || can('export_vanbanden') || can('export_vanbandi'));
+
   const [searchParams, setSearchParams] = useSearchParams();
   const loaiVanBanParam = searchParams.get('loai_van_ban');
   const phamViParam = searchParams.get('pham_vi');
@@ -130,6 +140,8 @@ export const ConfidentialDocumentPage: React.FC = () => {
   const [alertMsg, setAlertMsg] = useState<string>('');
   const [isAlertOpen, setIsAlertOpen] = useState<boolean>(false);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
+  const [recordDossiers, setRecordDossiers] = useState<Array<{ id: number | string; ten_ho_so: string; so_ky_hieu?: string }>>([]);
+  const [recordDocTypes, setRecordDocTypes] = useState<Array<{ id: number | string; ten_loai: string; ho_so?: number | string; ten_ho_so?: string }>>([]);
   const [stats, setStats] = useState<{
     total: number;
     active: number;
@@ -169,6 +181,69 @@ export const ConfidentialDocumentPage: React.FC = () => {
         partial,
         replaced,
       });
+
+      try {
+        const dossiersRes = await apiClient.get<unknown>('/api/records/dossiers/?page_size=100');
+        const rawDossiers = Array.isArray(dossiersRes)
+          ? dossiersRes
+          : (dossiersRes as { results?: Array<{ ten_ho_so?: string }>; items?: Array<{ ten_ho_so?: string }> })?.results
+          || (dossiersRes as { results?: Array<{ ten_ho_so?: string }>; items?: Array<{ ten_ho_so?: string }> })?.items
+          || [];
+
+        if (Array.isArray(rawDossiers) && rawDossiers.length > 0) {
+          const parsedDossiers: Array<{ id: number | string; ten_ho_so: string; so_ky_hieu?: string }> = [];
+          rawDossiers.forEach((d) => {
+            const rawD = d as { id?: number | string; ten_ho_so?: string; so_ky_hieu?: string };
+            const name = rawD?.ten_ho_so?.trim();
+            if (name) {
+              parsedDossiers.push({
+                id: rawD.id ?? '',
+                ten_ho_so: name,
+                so_ky_hieu: rawD.so_ky_hieu,
+              });
+            }
+          });
+          setRecordDossiers(parsedDossiers);
+        }
+      } catch {
+        // Fallback an toàn
+      }
+
+      try {
+        const docTypesRes = await apiClient.get<unknown>('/api/records/document-types/?page_size=100');
+        const rawDocTypes = Array.isArray(docTypesRes)
+          ? docTypesRes
+          : (docTypesRes as { results?: Array<{ ten_ho_so?: string; ten_loai?: string }>; items?: Array<{ ten_ho_so?: string; ten_loai?: string }> })?.results
+          || (docTypesRes as { results?: Array<{ ten_ho_so?: string; ten_loai?: string }>; items?: Array<{ ten_ho_so?: string; ten_loai?: string }> })?.items
+          || [];
+
+        if (Array.isArray(rawDocTypes) && rawDocTypes.length > 0) {
+          const parsedDocTypes: Array<{ id: number | string; ten_loai: string; ho_so?: number | string; ten_ho_so?: string }> = [];
+          rawDocTypes.forEach((dt) => {
+            const rawDt = dt as { id?: number | string; ten_ho_so?: string; ten_loai?: string; ho_so?: number | string | { id?: number | string } };
+            const folderName = rawDt?.ten_ho_so?.trim();
+            const typeName = rawDt?.ten_loai?.trim();
+            const rawHoSo = rawDt?.ho_so;
+            let hoSoId: number | string | undefined = undefined;
+            if (typeof rawHoSo === 'string' || typeof rawHoSo === 'number') {
+              hoSoId = rawHoSo;
+            } else if (rawHoSo && typeof rawHoSo === 'object' && 'id' in rawHoSo) {
+              hoSoId = rawHoSo.id;
+            }
+            if (typeName) {
+              parsedDocTypes.push({
+                id: rawDt.id ?? '',
+                ten_loai: typeName,
+                ho_so: hoSoId,
+                ten_ho_so: folderName,
+              });
+            }
+          });
+          setRecordDocTypes(parsedDocTypes);
+        }
+      } catch {
+        // Fallback an toàn
+      }
     } catch {
       // Bỏ qua lỗi thống kê khi chạy offline
     }
@@ -429,6 +504,52 @@ export const ConfidentialDocumentPage: React.FC = () => {
 
   const countActive = stats.active + stats.partial;
 
+  // Tra cứu Tên hồ sơ và Tên loại văn bản thân thiện từ danh mục Nhóm 3 khi URL truyền mã ID tham chiếu
+  const resolvedRecordLabels = useMemo(() => {
+    let resolvedDocType = '';
+    let resolvedFolder = '';
+
+    if (filters.loai_van_ban) {
+      const lvStr = String(filters.loai_van_ban).trim();
+      const matchedType = recordDocTypes.find((dt) => String(dt.id) === lvStr);
+      if (matchedType) {
+        resolvedDocType = matchedType.ten_loai;
+        if (matchedType.ten_ho_so) {
+          resolvedFolder = matchedType.ten_ho_so;
+        } else if (matchedType.ho_so) {
+          const matchedDossier = recordDossiers.find((d) => String(d.id) === String(matchedType.ho_so));
+          if (matchedDossier) {
+            resolvedFolder = matchedDossier.ten_ho_so;
+          }
+        }
+      } else if (!/^\d+$/.test(lvStr)) {
+        resolvedDocType = lvStr;
+      }
+    }
+
+    if (!resolvedFolder && filters.ho_so) {
+      const hsStr = String(filters.ho_so).trim();
+      const matchedDossier = recordDossiers.find((d) => String(d.id) === hsStr);
+      if (matchedDossier) {
+        resolvedFolder = matchedDossier.ten_ho_so;
+      } else {
+        const urlTenHoSo = searchParams.get('ten_ho_so');
+        if (urlTenHoSo && urlTenHoSo.trim()) {
+          resolvedFolder = urlTenHoSo.trim();
+        } else if (!/^\d+$/.test(hsStr)) {
+          resolvedFolder = hsStr;
+        }
+      }
+    } else if (!resolvedFolder && searchParams.get('ten_ho_so')) {
+      resolvedFolder = searchParams.get('ten_ho_so')!.trim();
+    }
+
+    return {
+      docTypeName: resolvedDocType,
+      dossierName: resolvedFolder,
+    };
+  }, [filters.loai_van_ban, filters.ho_so, recordDocTypes, recordDossiers, searchParams]);
+
   return (
     <div className="w-full p-2 sm:p-4 md:p-6 animate-in fade-in duration-150">
       {/* 1. Header Trang & Thao tác */}
@@ -450,38 +571,44 @@ export const ConfidentialDocumentPage: React.FC = () => {
 
         {/* Các nút hành động chính (Thêm mới, Nhập Excel, Xuất Excel, Làm mới) */}
         <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
-            icon="fa-plus"
-            onClick={handleOpenCreate}
-            title={t('documents_incoming_page.addBtn') || 'Thêm văn bản mật mới'}
-          >
-            {t('documents_incoming_page.addBtn') || 'Thêm mới'}
-          </Button>
+          {canAdd && (
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              icon="fa-plus"
+              onClick={handleOpenCreate}
+              title={t('documents_incoming_page.addBtn') || 'Thêm văn bản mật mới'}
+            >
+              {t('documents_incoming_page.addBtn') || 'Thêm mới'}
+            </Button>
+          )}
 
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            icon="fa-file-excel"
-            onClick={() => setIsImportOpen(true)}
-            title={t('documents_ui.actions.importExcelTitle') || 'Nhập danh sách văn bản mật từ tệp Excel'}
-          >
-            {t('documents_ui.actions.importExcel') || 'Import Excel'}
-          </Button>
+          {canImport && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              icon="fa-file-excel"
+              onClick={() => setIsImportOpen(true)}
+              title={t('documents_ui.actions.importExcelTitle') || 'Nhập danh sách văn bản mật từ tệp Excel'}
+            >
+              {t('documents_ui.actions.importExcel') || 'Import Excel'}
+            </Button>
+          )}
 
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            icon="fa-file-export"
-            onClick={handleExportExcel}
-            title={t('documents_ui.actions.exportExcelTitle') || 'Xuất dữ liệu văn bản mật ra file Excel'}
-          >
-            {t('documents_ui.actions.exportExcel') || 'Xuất Excel'}
-          </Button>
+          {canExport && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              icon="fa-file-export"
+              onClick={handleExportExcel}
+              title={t('documents_ui.actions.exportExcelTitle') || 'Xuất dữ liệu văn bản mật ra file Excel'}
+            >
+              {t('documents_ui.actions.exportExcel') || 'Xuất Excel'}
+            </Button>
+          )}
 
           <Button
             type="button"
@@ -572,7 +699,20 @@ export const ConfidentialDocumentPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <i className="fa-solid fa-filter text-primary" />
             <span>
-              {t('documents_ui.scopeTabs.loaiVanBanFilterNotice') || 'Đang lọc danh sách theo Loại văn bản (từ phân hệ Hồ sơ):'} <strong>#{filters.loai_van_ban}</strong>
+              {t('documents_ui.scopeTabs.loaiVanBanFilterNotice') || 'Đang lọc danh sách theo Loại văn bản (từ phân hệ Hồ sơ):'}{' '}
+              {resolvedRecordLabels.docTypeName ? (
+                <>
+                  <strong className="text-primary font-bold">{resolvedRecordLabels.docTypeName}</strong>{' '}
+                  <strong className="text-primary/70 font-semibold">#{filters.loai_van_ban}</strong>
+                </>
+              ) : (
+                <strong className="text-primary font-bold">#{filters.loai_van_ban}</strong>
+              )}
+              {resolvedRecordLabels.dossierName && (
+                <span className="ml-1 text-secondary font-medium">
+                  (thuộc Danh mục: <strong>{resolvedRecordLabels.dossierName}</strong>)
+                </span>
+              )}
             </span>
           </div>
           <button
@@ -616,6 +756,8 @@ export const ConfidentialDocumentPage: React.FC = () => {
         onReset={handleResetFilters}
         isLoading={isLoading}
         availableYears={availableYears}
+        recordDossiers={recordDossiers}
+        recordDocTypes={recordDocTypes}
         documentType="MAT"
       />
 

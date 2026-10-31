@@ -113,6 +113,19 @@ class SigningDatabaseIntegrityTests(TestCase):
             with self.subTest(sai=sai), self.assertRaises(IntegrityError), transaction.atomic():
                 SigningRequest.objects.create(**sai, **chung)
 
+    def test_only_one_completed_request_can_be_linked_to_an_outgoing_document(self):
+        SigningRequest.objects.filter(pk=self.request.pk).update(trang_thai=enums.TrangThaiYeuCau.HOAN_THANH)
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            SigningRequest.objects.create(
+                document_type=enums.LoaiVanBan.VAN_BAN_DI,
+                van_ban_id=1,
+                quy_trinh=self.process,
+                phien_ban_quy_trinh=1,
+                trang_thai=enums.TrangThaiYeuCau.HOAN_THANH,
+                create_by=self.user,
+            )
+
     def test_all_signing_foreign_keys_match_ddl_targets_and_delete_actions(self):
         self.assertEqual(connection.vendor, "postgresql")
         with connection.cursor() as cursor:

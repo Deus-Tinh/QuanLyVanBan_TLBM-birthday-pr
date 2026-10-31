@@ -44,7 +44,7 @@ Tài liệu này là lộ trình triển khai backend, sắp xếp từ phần �
 - `SigningProcessStepSigner`, `SigningRequest`, `SigningAttempt`, `SigningRequestStep`, `SigningRequestStepSigner`, `SigningSignature`, `SigningManifest`, `SigningChangeThread`, `SigningChangeMessage`, `SigningAuditLog`, `SigningNotification`.
 - Văn bản: `document_type` (đến/đi/mật) + `van_ban_id`, không FK.
 - Chức vụ: `chuc_vu_id` số nguyên cho phép rỗng tạm thời; CHECK "người ký hoặc chức vụ" khai báo ngay.
-- Ràng buộc unique, CHECK SHA-256, CHECK nhật ký luồng ký, CHECK lý do ủy quyền theo `signing-backend-plan.md` mục 5.2, 5.3.
+- Ràng buộc unique, CHECK SHA-256, CHECK nhật ký luồng ký theo `signing-backend-plan.md` mục 5.2, 5.3.
 - Bất biến ở tầng model (môi trường SQLite chưa có trigger): chặn sửa chữ ký (trừ trường xác minh), chặn sửa/xóa manifest `DA_CHOT`, nhật ký chỉ ghi thêm.
 - Trigger PostgreSQL tương ứng đã có trong CSDL chung; áp dụng khi chuyển sang PostgreSQL.
 
@@ -108,7 +108,7 @@ Căn cứ: `danh-gia-nghiep-vu-va-de-xuat.md`. Làm trước Phase 7 vì đụng
 
 ### Phase 8 — Hành động người ký (xong trên máy, #80)
 - `services/hanh_dong_ky.py`: `ky`, `tu_choi`, `thu_hoi`; API ở `signing-backend-plan.md` mục 7.3.
-- Quy tắc: cấp mở tuần tự, người trong cấp ký song song, cấp đóng khi mọi người ký (ký nháy và ký chính) đã ký; ký chính chờ ký nháy chặn; từ chối là kết thúc; thu hồi chỉ khi cấp còn mở.
+- Quy tắc: cấp mở tuần tự, người trong cấp ký song song, cấp đóng khi mọi người ký đã ký; từ chối là kết thúc; thu hồi chỉ khi cấp còn mở.
 - Đồng thời: khóa dòng lượt trình; chống lặp bằng `khoa_chong_trung_thao_tac` của dòng người ký. Test PostgreSQL: ký trùng hai khóa chỉ tạo một chữ ký; ký cạnh tranh với hủy cho một kết quả nhất quán.
 - Test: `tests/test_hanh_dong_ky_phase8.py`.
 
@@ -137,7 +137,7 @@ Căn cứ: `danh-gia-nghiep-vu-va-de-xuat.md`. Làm trước Phase 7 vì đụng
 - Test: `tests/test_hoan_tat_phase10.py`; kiểm thử tích hợp trên PostgreSQL dựng từ DDL (trigger chặn sửa manifest đã chốt).
 
 ### Phase 7 đến 10 — Phần phụ thuộc bên ngoài
-- Văn bản mật đã bỏ (GVHD chốt, DDL #81); trình ký chỉ nhận `vanbandi` thường. Văn bản hạn chế (`pham_vi = 'HAN_CHE'`) là văn bản gửi đi chọn người xem và lưu log xem (Nhóm 2), không ký, không đi qua trình ký: Phase 7 từ chối ở API tạo hồ sơ khi #82 có `pham_vi`. Hình thức ký KT./TL./TUQ. và ủy quyền có thời hạn, phạm vi theo NĐ 30/2020 Điều 13.
+- Văn bản mật đã bỏ (GVHD chốt, DDL #81); bản ghi gắn trong Trình ký chỉ nhận `vanbandi` thường và dùng PDF đính kèm ngay trên bản ghi. Có thể tải PDF dự thảo chưa vào sổ với mã hồ sơ tự cấp; sau khi duyệt và tạo tệp kết quả thành công, người tạo đăng ký tệp trong Văn bản đi rồi liên kết hồ sơ. Trình ký không tự tạo văn bản, cấp số hoặc chuyển tệp sang kho Văn bản đi. Văn bản hạn chế (`pham_vi = 'HAN_CHE'`) không đi qua Trình ký. Hình thức ký KT./TL./TUQ. và ủy quyền có thời hạn, phạm vi theo NĐ 30/2020 Điều 13.
 - Phase 7: đã đổi `chuc_vu_id`, `don_vi_id`, `don_vi_ap_dung_id` sang FK (Nhóm 7) và dùng hàm "văn bản xem được" của Nhóm 2 (migration `0010`).
 - Phase 8: test đồng thời (hai người ký cùng lúc, gửi lặp, ký lặp) cần PostgreSQL. Thu hồi chữ ký theo điều kiện "cấp còn mở". Mọi thao tác khóa hồ sơ trước lượt trình để tránh deadlock.
 - Phase 9 (ngoài MVP #80):

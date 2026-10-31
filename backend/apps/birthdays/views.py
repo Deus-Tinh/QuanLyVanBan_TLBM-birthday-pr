@@ -1,17 +1,18 @@
 import calendar
 from datetime import date
 from django.conf import settings
+from django.core import signing
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from authorization.permissions import require_permission
 from accounts.models import Employee
 from .models import BirthdayEmailLog, BirthdayEmailStatus
-from .services import is_birthday_on_date, serialize_staff_birthday
+from .services import is_birthday_on_date, load_birthday_card_token, serialize_staff_birthday
 
 
 def serialize_email_log(log: BirthdayEmailLog) -> dict:
@@ -19,6 +20,7 @@ def serialize_email_log(log: BirthdayEmailLog) -> dict:
         "id": log.id,
         "employee_id": log.employee_id,
         "employee_name": log.employee.ho_ten,
+        "position": log.employee.chuc_vu.name if log.employee.chuc_vu else "",
         "department": log.employee.don_vi.ten if log.employee.don_vi else "",
         "sent_date": log.sent_date.strftime("%d/%m/%Y"),
         "sent_at": timezone.localtime(log.sent_at).strftime("%d/%m/%Y %H:%M:%S") if log.sent_at else None,
@@ -156,7 +158,7 @@ def day_birthdays_api(request):
         .exclude(ngay_sinh__isnull=True)
         .filter(birthday_filter)
         .select_related("don_vi", "chuc_vu")
-        .order_by("don_vi__stt_uu_tien", "chuc_vu__display_order", "ho_ten", "id")
+        .order_by("chuc_vu__display_order", "don_vi__stt_uu_tien", "ho_ten", "id")
     )
 
     paginator = Paginator(staff_on_day, page_size)
@@ -175,6 +177,27 @@ def day_birthdays_api(request):
         "has_previous": current_page_data.has_previous(),
         "employees": [serialize_staff_birthday(emp) for emp in current_page_data],
     })
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def birthday_card_api(request):
+    """Trả dữ liệu tối thiểu cho thiệp web theo token ký, không cần tài khoản."""
+    token = request.data.get("token", "") if isinstance(request.data, dict) else ""
+    token = token.strip() if isinstance(token, str) else ""
+    if not token:
+        return Response({"success": False, "error": "Thiếu liên kết thiệp hợp lệ."}, status=400)
+
+    try:
+        card = load_birthday_card_token(token)
+    except signing.SignatureExpired:
+        return Response({"success": False, "error": "Liên kết thiệp đã hết hạn."}, status=410)
+    except signing.BadSignature:
+        return Response({"success": False, "error": "Liên kết thiệp không hợp lệ."}, status=400)
+
+    response = Response({"success": True, "card": card})
+    response["Cache-Control"] = "private, no-store"
+    return response
 
 
 @api_view(["GET"])

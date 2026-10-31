@@ -15,10 +15,14 @@ interface AppHeaderProps {
   onNavigate?: (pageId: ActivePageId) => void;
   preferredLightTheme?: ThemeMode;
   preferredDarkTheme?: ThemeMode;
+  activePage?: ActivePageId;
+  isScrolled?: boolean;
+  onScrollToTop?: () => void;
 }
 
 import { Logo } from '@components/common/Logo';
 import { useTranslation } from '@i18n/translate';
+import { SubNavContent } from './TopSubNav';
 
 export default function AppHeader({
   currentTheme,
@@ -29,13 +33,16 @@ export default function AppHeader({
   onNavigate,
   preferredLightTheme,
   preferredDarkTheme,
+  activePage,
+  isScrolled = false,
+  onScrollToTop,
 }: AppHeaderProps) {
   const { t } = useTranslation();
 
   return (
     <header className="h-16 px-4 bg-header border-b border-subtle flex items-center justify-between shrink-0 z-30 backdrop-blur-md transition-colors duration-normal">
       {/* 1. Left Section: 3-bar Menu Trigger & Bao Long Logo (Ẩn khi Sidebar mở rộng để chống trùng lặp trên cùng khung hình) */}
-      <div className="flex items-center gap-3.5">
+      <div className="flex items-center gap-3.5 shrink-0">
         {!isSidebarOpen && (
           <>
             <button
@@ -58,8 +65,22 @@ export default function AppHeader({
         )}
       </div>
 
-      {/* 2. Right Section: Notifications, Theme, Language, User */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      {/* 2. Middle Section: Dynamic Header Bar khi lăn chuột (Chỉ hiển thị trên Desktop >= 1024px khi có đủ khoảng trống) */}
+      <div className="hidden lg:flex flex-1 items-center justify-start min-w-0 px-4 overflow-hidden">
+        {isScrolled && activePage && (
+          <div className="w-full max-w-3xl transition-all duration-300 ease-out animate-in fade-in slide-in-from-top-1">
+            <SubNavContent
+              activePage={activePage}
+              onNavigate={onNavigate}
+              onScrollToTop={onScrollToTop}
+              isCompact={true}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* 3. Right Section: Notifications, Theme, Language, User */}
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         {/* Thông báo 3 luồng: Đến, Đi, Mật */}
         <NotificationStreams />
 

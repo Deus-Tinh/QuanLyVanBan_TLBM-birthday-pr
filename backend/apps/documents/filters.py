@@ -237,25 +237,26 @@ class BaseDocumentFilter(django_filters.FilterSet):
         if not value:
             return queryset
         val = str(value).strip()
+        if val.isdecimal():
+            if not hasattr(queryset.model, "danhmuc"):
+                return queryset.none()
+            return queryset.filter(danhmuc__loaivanban_id=int(val)).distinct()
         fields = [f.name for f in queryset.model._meta.fields]
         q_cond = Q()
         if "ten_loai_van_ban" in fields:
             q_cond |= Q(ten_loai_van_ban__icontains=val)
         if hasattr(queryset.model, "danhmuc"):
-            if val.isdigit():
-                q_cond |= Q(danhmuc__loaivanban_id=int(val))
-            else:
-                try:
-                    from .services import ensure_standard_hoso_and_doc_types
-                    ensure_standard_hoso_and_doc_types()
-                    from records.models import LoaiVanBan as RecordLoaiVanBan
-                    lvb_ids = list(RecordLoaiVanBan.objects.filter(ten_loai__iexact=val).values_list("pk", flat=True)[:100])
-                    if not lvb_ids:
-                        lvb_ids = list(RecordLoaiVanBan.objects.filter(ten_loai__icontains=val).values_list("pk", flat=True)[:100])
-                    if lvb_ids:
-                        q_cond |= Q(danhmuc__loaivanban_id__in=lvb_ids)
-                except Exception:
-                    pass
+            try:
+                from .services import ensure_standard_hoso_and_doc_types
+                ensure_standard_hoso_and_doc_types()
+                from records.models import LoaiVanBan as RecordLoaiVanBan
+                lvb_ids = list(RecordLoaiVanBan.objects.filter(ten_loai__iexact=val).values_list("pk", flat=True)[:100])
+                if not lvb_ids:
+                    lvb_ids = list(RecordLoaiVanBan.objects.filter(ten_loai__icontains=val).values_list("pk", flat=True)[:100])
+                if lvb_ids:
+                    q_cond |= Q(danhmuc__loaivanban_id__in=lvb_ids)
+            except Exception:
+                pass
 
         type_abbr_map = {
             "QUYẾT ĐỊNH": ["QĐ", "QD", "QUYẾT ĐỊNH"],
@@ -283,29 +284,30 @@ class BaseDocumentFilter(django_filters.FilterSet):
         if not value:
             return queryset
         val = str(value).strip()
+        if val.isdecimal():
+            if not hasattr(queryset.model, "hoso"):
+                return queryset.none()
+            return queryset.filter(hoso__hoso_id=int(val)).distinct()
         fields = [f.name for f in queryset.model._meta.fields]
         q_cond = Q()
         if "danh_muc_ho_so" in fields:
             q_cond |= Q(danh_muc_ho_so__icontains=val)
         if hasattr(queryset.model, "hoso"):
-            if val.isdigit():
-                q_cond |= Q(hoso__hoso_id=int(val))
-            else:
-                try:
-                    from .services import ensure_standard_hoso_and_doc_types
-                    ensure_standard_hoso_and_doc_types()
-                    from records.models import HoSo
+            try:
+                from .services import ensure_standard_hoso_and_doc_types
+                ensure_standard_hoso_and_doc_types()
+                from records.models import HoSo
+                hs_ids = list(HoSo.objects.filter(
+                    Q(ten_ho_so__iexact=val) | Q(so_ky_hieu__iexact=val)
+                ).values_list("pk", flat=True)[:100])
+                if not hs_ids:
                     hs_ids = list(HoSo.objects.filter(
-                        Q(ten_ho_so__iexact=val) | Q(so_ky_hieu__iexact=val)
+                        Q(ten_ho_so__icontains=val) | Q(so_ky_hieu__icontains=val)
                     ).values_list("pk", flat=True)[:100])
-                    if not hs_ids:
-                        hs_ids = list(HoSo.objects.filter(
-                            Q(ten_ho_so__icontains=val) | Q(so_ky_hieu__icontains=val)
-                        ).values_list("pk", flat=True)[:100])
-                    if hs_ids:
-                        q_cond |= Q(hoso__hoso_id__in=hs_ids)
-                except Exception:
-                    pass
+                if hs_ids:
+                    q_cond |= Q(hoso__hoso_id__in=hs_ids)
+            except Exception:
+                pass
         q_cond |= Q(trich_yeu__icontains=val)
         if q_cond:
             return queryset.filter(q_cond).distinct()

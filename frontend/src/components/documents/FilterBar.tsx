@@ -13,6 +13,8 @@ export interface FilterBarProps {
   availableFolders?: string[];
   availableDocTypes?: string[];
   folderDocTypesMap?: Record<string, string[]>;
+  recordDossiers?: Array<{ id: number | string; ten_ho_so: string; so_ky_hieu?: string }>;
+  recordDocTypes?: Array<{ id: number | string; ten_loai: string; ho_so?: number | string; ten_ho_so?: string }>;
   documentType?: 'DEN' | 'DI' | 'MAT';
 }
 
@@ -52,6 +54,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   availableFolders,
   availableDocTypes,
   folderDocTypesMap,
+  recordDossiers,
+  recordDocTypes,
   documentType = 'DEN',
 }) => {
   const { t } = useTranslation();
@@ -65,14 +69,63 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   const yearOptions = React.useMemo(() => {
     return availableYears && availableYears.length > 0 ? availableYears : [CURRENT_YEAR];
   }, [availableYears]);
-  
-  // Danh sách hồ sơ hiển thị: ưu tiên hồ sơ thực tế có văn bản trong hệ thống
-  const folderOptions = React.useMemo(() => {
-    if (availableFolders && availableFolders.length > 0) {
-      return availableFolders;
+
+  // Tra cứu Tên hồ sơ hiển thị (xử lý khi filters.ho_so là ID số hoặc chuỗi tên, hoặc suy từ loai_van_ban)
+  const currentFolderName = React.useMemo(() => {
+    if (filters.ho_so) {
+      const hsStr = String(filters.ho_so).trim();
+      const matchedDossier = recordDossiers?.find((d) => String(d.id) === hsStr);
+      if (matchedDossier) {
+        return matchedDossier.ten_ho_so;
+      }
+      if (/^\d+$/.test(hsStr)) {
+        return '';
+      }
+      return hsStr;
     }
-    return Object.keys(FOLDER_TO_DOC_TYPES_MAP);
-  }, [availableFolders]);
+    if (filters.loai_van_ban && recordDocTypes && recordDocTypes.length > 0) {
+      const lvStr = String(filters.loai_van_ban).trim();
+      const matchedType = recordDocTypes.find((dt) => String(dt.id) === lvStr);
+      if (matchedType) {
+        if (matchedType.ten_ho_so) return matchedType.ten_ho_so;
+        if (matchedType.ho_so && recordDossiers) {
+          const matchedDossier = recordDossiers.find((d) => String(d.id) === String(matchedType.ho_so));
+          if (matchedDossier) return matchedDossier.ten_ho_so;
+        }
+      }
+    }
+    return '';
+  }, [filters.ho_so, filters.loai_van_ban, recordDossiers, recordDocTypes]);
+
+  // Tra cứu Tên loại văn bản hiển thị (xử lý khi filters.loai_van_ban là ID số hoặc chuỗi tên)
+  const currentDocTypeName = React.useMemo(() => {
+    if (filters.loai_van_ban !== undefined && filters.loai_van_ban !== null && filters.loai_van_ban !== '') {
+      const lvStr = String(filters.loai_van_ban).trim();
+      const matchedType = recordDocTypes?.find((dt) => String(dt.id) === lvStr);
+      if (matchedType) {
+        return matchedType.ten_loai;
+      }
+      if (/^\d+$/.test(lvStr)) {
+        return '';
+      }
+      return lvStr;
+    }
+    return '';
+  }, [filters.loai_van_ban, recordDocTypes]);
+  
+  // Danh sách hồ sơ hiển thị: ưu tiên hồ sơ thực tế có văn bản trong hệ thống và bổ sung hồ sơ đang được chọn
+  const folderOptions = React.useMemo(() => {
+    let list: string[];
+    if (availableFolders && availableFolders.length > 0) {
+      list = [...availableFolders];
+    } else {
+      list = Object.keys(FOLDER_TO_DOC_TYPES_MAP);
+    }
+    if (currentFolderName && !list.includes(currentFolderName)) {
+      list = [...list, currentFolderName];
+    }
+    return list;
+  }, [availableFolders, currentFolderName]);
 
   // Lọc Loại văn bản tương ứng theo Danh mục hồ sơ được chọn
   const filteredDocTypeOptions = React.useMemo(() => {
@@ -80,26 +133,33 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       ? availableDocTypes
       : DEFAULT_DOC_TYPES;
 
-    if (!filters.ho_so) {
+    const activeFolder = currentFolderName;
+    let result: string[];
+
+    if (!activeFolder) {
       // Chưa chọn hồ sơ: hiển thị tất cả loại văn bản có trong hệ thống
-      return allDocTypes;
+      result = allDocTypes;
+    } else {
+      // 1. Ưu tiên lấy từ bản đồ động các văn bản thực tế trong CSDL
+      const dynamicTypes = folderDocTypesMap?.[activeFolder];
+      if (dynamicTypes && dynamicTypes.length > 0) {
+        result = dynamicTypes;
+      } else {
+        // 2. Dự phòng lấy từ bảng ánh xạ nghiệp vụ chuẩn
+        const fallbackTypes = FOLDER_TO_DOC_TYPES_MAP[activeFolder];
+        if (fallbackTypes && fallbackTypes.length > 0) {
+          result = fallbackTypes;
+        } else {
+          result = allDocTypes;
+        }
+      }
     }
 
-    // 1. Ưu tiên lấy từ bản đồ động các văn bản thực tế trong CSDL
-    const dynamicTypes = folderDocTypesMap?.[filters.ho_so];
-    if (dynamicTypes && dynamicTypes.length > 0) {
-      return dynamicTypes;
+    if (currentDocTypeName && !result.includes(currentDocTypeName)) {
+      result = [...result, currentDocTypeName];
     }
-
-    // 2. Dự phòng lấy từ bảng ánh xạ nghiệp vụ chuẩn
-    const fallbackTypes = FOLDER_TO_DOC_TYPES_MAP[filters.ho_so];
-    if (fallbackTypes && fallbackTypes.length > 0) {
-      return fallbackTypes;
-    }
-
-    // 3. Nếu hồ sơ tự do chưa phân loại: hiển thị tất cả loại văn bản
-    return allDocTypes;
-  }, [filters.ho_so, availableDocTypes, folderDocTypesMap]);
+    return result;
+  }, [currentFolderName, currentDocTypeName, availableDocTypes, folderDocTypesMap]);
 
   const handleFolderChange = (folderValue: string) => {
     const nextFilters: DocumentFilterParams = {
@@ -115,7 +175,11 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       const allowedDynamic = folderDocTypesMap?.[folderValue];
       const allowedStatic = FOLDER_TO_DOC_TYPES_MAP[folderValue];
       const allowedList = allowedDynamic || allowedStatic;
-      if (allowedList && !allowedList.includes(String(filters.loai_van_ban))) {
+      if (
+        allowedList &&
+        !allowedList.includes(currentDocTypeName) &&
+        !allowedList.includes(String(filters.loai_van_ban))
+      ) {
         nextFilters.loai_van_ban = undefined;
       }
     }
@@ -149,12 +213,12 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   const docTypeSelectOptions: SelectOption[] = React.useMemo(() => [
     {
       value: '',
-      label: filters.ho_so
+      label: (currentFolderName || filters.ho_so)
         ? (t('documents_ui.filter.allTypesInDossier') || 'Tất cả loại văn bản trong hồ sơ')
         : (t('documents_ui.filter.selectDossierPrompt') || '— Vui lòng chọn danh mục hồ sơ trước —'),
     },
     ...filteredDocTypeOptions.map((docType) => ({ value: docType, label: docType })),
-  ], [filters.ho_so, filteredDocTypeOptions, t]);
+  ], [currentFolderName, filters.ho_so, filteredDocTypeOptions, t]);
 
   // Options cho Select Năm
   const yearSelectOptions: SelectOption[] = React.useMemo(() => [
@@ -220,7 +284,9 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           </label>
           <div className="relative w-full max-w-full min-w-0">
             <Select
-              value={filters.ho_so || ''}
+              nativeSelect
+              title="Chọn danh mục hồ sơ để lọc văn bản"
+              value={currentFolderName || (filters.ho_so ? String(filters.ho_so) : '')}
               onChange={handleFolderChange}
               options={dossierSelectOptions}
               placeholder={t('documents_ui.filter.allDossiers') || 'Tất cả danh mục hồ sơ'}
@@ -235,12 +301,12 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           <label className="block text-xs font-semibold text-secondary mb-1.5 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
               <span className={`w-4 h-4 rounded-full text-[10px] inline-flex items-center justify-center font-bold ${
-                filters.ho_so ? 'bg-primary/10 text-primary' : 'bg-hover text-muted'
+                (currentFolderName || filters.ho_so) ? 'bg-primary/10 text-primary' : 'bg-hover text-muted'
               }`}>2</span>
-              <i className={`fa-solid fa-file-lines text-[0.75rem] ${filters.ho_so ? 'text-primary' : 'text-muted'}`} />
-              <span className={filters.ho_so ? 'text-secondary font-semibold' : 'text-muted font-normal'}>{t('documents_ui.filter.docType') || 'Loại văn bản'}</span>
+              <i className={`fa-solid fa-file-lines text-[0.75rem] ${(currentFolderName || filters.ho_so) ? 'text-primary' : 'text-muted'}`} />
+              <span className={(currentFolderName || filters.ho_so) ? 'text-secondary font-semibold' : 'text-muted font-normal'}>{t('documents_ui.filter.docType') || 'Loại văn bản'}</span>
             </span>
-            {filters.ho_so ? (
+            {(currentFolderName || filters.ho_so) ? (
               <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium italic flex items-center gap-1">
                 <i className="fa-solid fa-arrow-turn-down text-[9px]" /> {t('documents_ui.filter.bySelectedDossier') || 'Theo hồ sơ đã chọn'}
               </span>
@@ -252,12 +318,14 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           </label>
           <div className="relative w-full max-w-full min-w-0">
             <Select
-              disabled={!filters.ho_so}
-              value={filters.loai_van_ban !== undefined ? String(filters.loai_van_ban) : ''}
+              nativeSelect
+              disabled={!currentFolderName && !filters.ho_so}
+              title={(currentFolderName || filters.ho_so) ? "Chọn loại văn bản tương ứng" : "Khóa: Vui lòng chọn danh mục hồ sơ ở bước 1 trước"}
+              value={currentDocTypeName || (filters.loai_van_ban !== undefined && filters.loai_van_ban !== null ? String(filters.loai_van_ban) : '')}
               onChange={(val) => handleInputChange('loai_van_ban', val || undefined)}
               options={docTypeSelectOptions}
               placeholder={
-                filters.ho_so
+                (currentFolderName || filters.ho_so)
                   ? (t('documents_ui.filter.allTypesInDossier') || 'Tất cả loại văn bản trong hồ sơ')
                   : (t('documents_ui.filter.selectDossierPrompt') || '— Vui lòng chọn danh mục hồ sơ trước —')
               }

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import KetQuaPanel from '@components/signing/KetQuaPanel';
 import XemPdf from '@components/signing/XemPdf';
 import TraoDoiPanel from '@components/signing/TraoDoiPanel';
+import { ApiError } from '@lib/apiClient';
 import { signingApi } from '@lib/signing/api';
 import { SigningContext } from '@lib/signing/hooks';
 import type { HoSoChiTiet, KhoaKy, LuotTrinh, NguoiDungHienTai, QuyTrinh } from '@lib/signing/types';
@@ -16,7 +17,7 @@ import TaoHoSoPage, { Buoc2 } from './TaoHoSoPage';
 vi.mock('@lib/signing/api', async () => {
   const actual = await vi.importActual<typeof import('@lib/signing/api')>('@lib/signing/api');
   return { ...actual, signingApi: {
-    timVanBanDi: vi.fn(), quyTrinh: vi.fn(), taoNhap: vi.fn(), chiTietQuyTrinh: vi.fn(), khoa: vi.fn(),
+    timVanBanDi: vi.fn(), chiTietVanBanDi: vi.fn(), lienKetVanBanDi: vi.fn(), quyTrinh: vi.fn(), taoNhap: vi.fn(), chiTietQuyTrinh: vi.fn(), khoa: vi.fn(),
     traoDoi: vi.fn(), guiTinNhan: vi.fn(), giaiQuyet: vi.fn(), taoLaiTepHoanTat: vi.fn(), tepHoanTat: vi.fn(),
     bangChung: vi.fn(),
   } };
@@ -69,11 +70,15 @@ const boc = (ui: React.ReactNode, toi: NguoiDungHienTai = TOI) => render(
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.setItem('tlbm_lang', 'vi');
+  api.timVanBanDi.mockResolvedValue([]);
 });
 
 describe('TaoHoSoPage', () => {
   it('chỉ lưu nháp khi đã chọn văn bản, quy trình, tệp; gửi đúng dữ liệu', async () => {
     api.timVanBanDi.mockResolvedValue([{ id: 7, so_hieu: '15/TTr', trich_yeu: 'Mua sắm' }]);
+    api.chiTietVanBanDi.mockResolvedValue({ id: 7, so_hieu: '15/TTr', trich_yeu: 'Mua sắm', attachments: [
+      { id: 99, name: 'du-thao.pdf', file: '/api/documents/7/attachments/99/download/', file_size: 100, is_deleted: false },
+    ] });
     api.quyTrinh.mockResolvedValue([{
       id: 2, ma_quy_trinh: 'QT', ten_quy_trinh: 'Duyệt hai cấp', mo_ta: '', phien_ban: 1, trang_thai: 'HOAT_DONG',
       pham_vi: 'CONG_TY', don_vi_ap_dung_id: null, ten_don_vi_ap_dung: null, cap_ky: [], so_ho_so: 0,
@@ -83,20 +88,20 @@ describe('TaoHoSoPage', () => {
     const luu = await screen.findByRole('button', { name: /Lưu nháp và xem trước/ });
     expect(luu).toBeDisabled();
     fireEvent.click(await screen.findByRole('button', { name: /15\/TTr/ }));
+    fireEvent.change(await screen.findByLabelText('Tệp PDF trên văn bản đi'), { target: { value: '99' } });
     fireEvent.change(screen.getByLabelText(/Quy trình ký/), { target: { value: '2' } });
-    fireEvent.change(screen.getByLabelText(/Tệp PDF trình ký/), {
-      target: { files: [new File(['%PDF-1.4'], 'du-thao.pdf', { type: 'application/pdf' })] },
-    });
     await waitFor(() => expect(luu).toBeEnabled());
     fireEvent.click(luu);
     await waitFor(() => expect(api.taoNhap).toHaveBeenCalledTimes(1));
     const form = api.taoNhap.mock.calls[0][0] as FormData;
-    expect([form.get('document_type'), form.get('van_ban_id'), form.get('quy_trinh')]).toEqual(['vanbandi', '7', '2']);
+    expect([form.get('document_type'), form.get('van_ban_id'), form.get('tep_dinh_kem_id'), form.get('quy_trinh')])
+      .toEqual(['vanbandi', '7', '99', '2']);
+    expect(form.get('tep')).toBeNull();
   });
 });
 
 describe('TaoHoSoPage văn bản trình ký', () => {
-  it('không bắt buộc chọn văn bản đi: nhập văn bản khác (số hiệu, trích yếu) rồi lưu nháp', async () => {
+  it('không bắt buộc gắn bản ghi văn bản đi: tải PDF dự thảo chưa vào sổ và lưu nháp', async () => {
     api.timVanBanDi.mockResolvedValue([{ id: 7, so_hieu: '15/TTr', trich_yeu: 'Mua sắm' }]);
     api.quyTrinh.mockResolvedValue([{
       id: 2, ma_quy_trinh: 'QT', ten_quy_trinh: 'Duyệt hai cấp', mo_ta: '', phien_ban: 1, trang_thai: 'HOAT_DONG',
@@ -105,15 +110,15 @@ describe('TaoHoSoPage văn bản trình ký', () => {
     api.taoNhap.mockReturnValue(new Promise(() => undefined));
     boc(<TaoHoSoPage />);
     expect(await screen.findByText('Văn bản trình ký')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText(/Nhập văn bản khác/));
+    fireEvent.click(screen.getByLabelText(/Tải PDF dự thảo/));
     expect(screen.queryByRole('button', { name: /15\/TTr/ })).not.toBeInTheDocument();
     fireEvent.change(await screen.findByLabelText(/Quy trình ký/), { target: { value: '2' } });
-    fireEvent.change(screen.getByLabelText(/Tệp PDF trình ký/), {
+    fireEvent.change(screen.getByLabelText(/PDF dự thảo chưa vào sổ/), {
       target: { files: [new File(['%PDF-1.4'], 'to-trinh.pdf', { type: 'application/pdf' })] },
     });
     const luu = screen.getByRole('button', { name: /Lưu nháp và xem trước/ });
     expect(luu).toBeDisabled();  // chưa có trích yếu
-    fireEvent.change(screen.getByLabelText('Số hiệu (tùy chọn)'), { target: { value: '05/TTr' } });
+    fireEvent.change(screen.getByLabelText('Số hiệu tham chiếu'), { target: { value: '05/TTr' } });
     fireEvent.change(screen.getByLabelText('Trích yếu'), { target: { value: 'Tờ trình đào tạo' } });
     await waitFor(() => expect(luu).toBeEnabled());
     fireEvent.click(luu);
@@ -175,6 +180,18 @@ describe('KhoaPage', () => {
     await waitFor(() => expect(tao).toBeEnabled());
   });
 
+  it.each([
+    [500, { detail: 'Internal Server Error' }, 'Máy chủ gặp sự cố. Vui lòng thử lại sau.'],
+    [429, { detail: 'Request was throttled.' }, 'Thao tác quá nhanh. Vui lòng thử lại sau ít phút.'],
+    [404, { detail: 'Not found.' }, 'Không tìm thấy dữ liệu yêu cầu.'],
+    [403, { detail: 'You do not have permission.' }, 'Bạn không có quyền thực hiện thao tác này.'],
+  ])('tải khóa lỗi HTTP %i: hiện thông báo theo mã trạng thái, không hiện chuỗi thô của máy chủ', async (status, data, mong_doi) => {
+    api.khoa.mockRejectedValue(new ApiError(status, data));
+    boc(<KhoaPage />);
+    expect(await screen.findByText(mong_doi)).toBeInTheDocument();
+    expect(screen.queryByText(data.detail)).not.toBeInTheDocument();
+  });
+
   it('khóa đang hoạt động thuộc thiết bị khác: cho nhập file khóa vào thiết bị này', async () => {
     const khoa = { id: 4, ma_khoa: 'TB-3-1', dau_van_tay: 'f'.repeat(64), thuat_toan: 'Ed25519',
       khoa_cong_khai: 'pub', trang_thai: 'HOAT_DONG' } as KhoaKy;
@@ -223,7 +240,7 @@ describe('KetQuaPanel', () => {
     api.taoLaiTepHoanTat.mockResolvedValue(hoSo());
     const tai_lai = vi.fn();
     boc(<KetQuaPanel hoSo={hoSo({ luot_trinh: [loi] })} luot={loi} onTaiLai={tai_lai} />);
-    expect(screen.getByText(/thieu_phong_chu/)).toBeInTheDocument();
+    expect(screen.getByText(/thieu_phong_chu|Thiếu bộ chữ/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Tạo lại tệp/ }));
     await waitFor(() => expect(tai_lai).toHaveBeenCalled());
     expect(api.taoLaiTepHoanTat).toHaveBeenCalledWith(12);
@@ -243,18 +260,18 @@ describe('XemPdf', () => {
     pdf.veTrang.mockImplementationOnce(() => ({ xong: tuChoi(huy), huy: vi.fn() }));
     const { unmount } = boc(<XemPdf duLieu={new ArrayBuffer(8)} />);
     await waitFor(() => expect(pdf.veTrang).toHaveBeenCalled());
-    expect(screen.queryByText(/Không hiển thị được tệp PDF/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Không hiển thị được tệp PDF|Không đọc được PDF/)).not.toBeInTheDocument();
     unmount();
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     pdf.veTrang.mockImplementationOnce(() => ({ xong: tuChoi(new Error('getOrInsertComputed is not a function')), huy: vi.fn() }));
     boc(<XemPdf duLieu={new ArrayBuffer(8)} />);
-    expect(await screen.findByText(/Không hiển thị được tệp PDF/)).toBeInTheDocument();
+    expect(await screen.findByText(/Không hiển thị được tệp PDF|Không đọc được PDF/)).toBeInTheDocument();
   });
 
   it('không mở được PDF: hiện thông báo thay vì vùng trắng', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     pdf.moPdf.mockImplementationOnce(() => tuChoi(new Error('hong')));
     boc(<XemPdf duLieu={new ArrayBuffer(8)} />);
-    expect(await screen.findByText(/Không hiển thị được tệp PDF/)).toBeInTheDocument();
+    expect(await screen.findByText(/Không hiển thị được tệp PDF|Không đọc được PDF/)).toBeInTheDocument();
   });
 });

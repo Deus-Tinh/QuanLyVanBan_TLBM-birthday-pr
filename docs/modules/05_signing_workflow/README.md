@@ -1,5 +1,8 @@
 # Module 05: Trình ký số (Nhóm 5)
 
+> **Phạm vi:** mọi người ký trong một cấp có cùng một vai trò (ký chính). Ký nháy, ủy quyền ký và ký thay chưa có trong
+> module.
+
 Phân hệ trình ký văn bản đi qua nhiều cấp, ký điện tử nội bộ Ed25519, kết thúc ở **hoàn tất duyệt nội bộ, chưa phát
 hành**. Giao diện ở `/approvals`, API dưới `/api/v1/signing/`.
 
@@ -8,7 +11,7 @@ Tài liệu liên quan (không chép lại ở đây):
 - [`signing-backend-plan.md`](signing-backend-plan.md): quy tắc nghiệp vụ, bất biến, thiết kế dữ liệu, máy trạng thái, API.
 - [`danh-gia-plan-va-tich-hop.md`](danh-gia-plan-va-tich-hop.md): đánh giá plan và tích hợp với các nhóm.
 - [`du-lieu-mau-va-tinh-trang-nghiep-vu.md`](du-lieu-mau-va-tinh-trang-nghiep-vu.md): bảng tình trạng flow, file khóa,
-  ủy quyền, dữ liệu mẫu chi tiết, hợp đồng API Dashboard đầy đủ.
+  dữ liệu mẫu chi tiết, hợp đồng API Dashboard đầy đủ.
 - [`spec.md`](spec.md), [`qa-test-cases-80.md`](qa-test-cases-80.md).
 
 ## 1. Flow nghiệp vụ
@@ -16,17 +19,16 @@ Tài liệu liên quan (không chép lại ở đây):
 | Flow | Tình trạng |
 |---|---|
 | Quy trình mẫu: tạo nháp, sửa, kích hoạt, ngừng, nhân bản phiên bản, xóa phiên bản chưa có hồ sơ; phạm vi công ty/phòng ban; người ký theo tài khoản (danh bạ CBNV) hoặc chức vụ (Danh mục chức vụ) | Xong |
-| Tạo hồ sơ nháp (văn bản trình ký: chọn văn bản đi hoặc nhập văn bản khác; quy trình, PDF, hạn chót), sửa nháp | Xong |
+| Tạo hồ sơ nháp (chọn PDF đính kèm trên văn bản đi hoặc tải PDF dự thảo chưa vào sổ; quy trình, hạn chót), sửa nháp | Xong |
 | Trình ký: khóa tệp và mã băm, chọn người ký theo chức vụ, đặt vị trí ký | Xong |
-| Ký tuần tự theo cấp, song song trong cấp, ký nháy chặn ký chính | Xong |
+| Ký tuần tự theo cấp, song song trong cấp | Xong |
 | Khóa ký Ed25519 + PIN 8 số (Argon2id + salt, `k_srv`); xuất file khóa; ký bằng file khóa + PIN | Xong |
 | Không đồng ý ban hành (kết thúc); trình lại thành hồ sơ mới | Xong |
 | Trả lại để sửa → trao đổi → gửi bản sửa → lượt trình mới | Xong |
 | Hủy (người tạo; quản trị hủy thay có lý do); thu hồi chữ ký khi cấp còn mở | Xong |
 | Hoàn tất: bằng chứng tổng hợp, PDF hoàn tất, xác minh lại | Xong |
-| Ủy quyền ký khẩn cấp từng hồ sơ | Xong |
-| Thông báo trong ứng dụng + email (gửi lại khi lỗi), nhắc hạn/quá hạn | Xong |
-| Ủy quyền theo thời gian, thể thức KT./TL./TUQ., leo thang quá hạn | Chưa làm (mục 8) |
+| Thông báo qua email và outbox `signing_notification` (gửi lại khi lỗi), nhắc hạn/quá hạn; không còn trang xem trong ứng dụng | Xong |
+| Ký nháy, ủy quyền ký, thể thức KT./TL./TUQ., leo thang quá hạn | Chưa làm (mục 8) |
 
 Trạng thái hồ sơ (`signing_request.trang_thai`) và lượt trình (`signing_attempt.trang_thai`):
 
@@ -61,19 +63,19 @@ DDL/RBAC (Nhóm 7):
 |---|---|
 | Văn thư (VT) | xem, tạo, gửi trình ký |
 | Chuyên viên (CV) | xem, tạo nháp, gửi trình ký (đã cấp `send_trinhky` theo PR #254) |
-| Trưởng phòng (TP) | xem, tạo, gửi, ký, ủy quyền (người ký cùng đơn vị), hủy thay, quản lý quy trình phòng ban |
-| Ban Giám đốc (BGD) | xem, tạo, gửi, ký, ủy quyền, hủy thay, xem nhật ký mọi hồ sơ |
+| Trưởng phòng (TP) | xem, tạo, gửi, ký, hủy thay, quản lý quy trình phòng ban |
+| Ban Giám đốc (BGD) | xem, tạo, gửi, ký, hủy thay, xem nhật ký mọi hồ sơ |
 | Quản trị (ADMIN) | toàn quyền, quản lý quy trình công ty |
 
 Codename: `view_trinhky`, `add_trinhky`, `send_trinhky`, `sign_trinhky`, `delegate_trinhky`, `cancel_trinhky`,
-`manage_signing_process`, `view_signing_audit`.
+`manage_signing_process`, `view_signing_audit`. Quyền `delegate_trinhky` còn trong dữ liệu phân quyền nhưng Trình ký không còn dùng.
 
 ## 3. Cấu trúc thư mục chính
 
 ```text
 backend/apps/signing/
   models.py, enums.py, permissions.py, errors.py   # model theo DDL, mã trạng thái, kiểm quyền, định dạng lỗi
-  services/                                        # nghiệp vụ: trinh_ky, hanh_dong_ky, yeu_cau_sua, uy_quyen,
+  services/                                        # nghiệp vụ: trinh_ky, hanh_dong_ky, yeu_cau_sua,
                                                    #   keys, pin, thong_bao, bang_chung, tep_hoan_tat, process
   selectors.py                                     # selector chỉ đọc cho module khác (Dashboard)
   tich_hop/                                        # đọc văn bản đi (Nhóm 2), tổ chức/nhân sự (Nhóm 7)
@@ -92,13 +94,14 @@ frontend/src/
 |---|---|
 | `quy-trinh/`, `quy-trinh/{id}/`, `quy-trinh/{id}/{kich-hoat,ngung,nhan-ban}/` | Quy trình mẫu |
 | `trinh-ky/` (GET `?hop=can_toi_ky\|toi_gui\|tat_ca&page=&page_size=`, POST multipart) | Danh sách (phân trang), tạo nháp |
-| `trinh-ky/{id}/` (GET, PATCH) | Chi tiết (lượt, cấp, người ký, `lich_su`), sửa nháp |
+| `trinh-ky/{id}/` (GET, PATCH) | Chi tiết; sửa nháp; chuyển sang phiên bản mới hơn cùng mã nếu phiên bản gắn hiện tại đã ngừng |
+| `trinh-ky/{id}/lien-ket-van-ban-di/` (POST) | Người tạo liên kết hồ sơ đã hoàn tất duyệt với văn bản đi đã đăng ký |
 | `trinh-ky/{id}/{gui,huy,trinh-lai}/` | Gửi, hủy, trình lại |
-| `trinh-ky/{id}/{ky,tu-choi,thu-hoi,yeu-cau-sua,uy-quyen}/` | Hành động người ký, ủy quyền khẩn cấp |
+| `trinh-ky/{id}/{ky,tu-choi,thu-hoi,yeu-cau-sua}/` | Hành động người ký |
 | `trinh-ky/{id}/{trao-doi,giai-quyet}/` | Trao đổi khi trả sửa, gửi bản sửa |
 | `trinh-ky/{id}/{tep,tep-hoan-tat,bang-chung,tao-lai-tep-hoan-tat}/` | Tệp, tệp hoàn tất, bằng chứng |
 | `khoa/`, `khoa/{id}/{thach-thuc,xac-minh,kich-hoat,thu-hoi,xoay-vong,dat-pin,mo-khoa-ky,doi-pin}/` | Khóa ký, PIN |
-| `thong-bao/`, `tai-lieu/`, `toi/`, `nguoi-dung/`, `don-vi/`, `van-ban-di/` | Hỗ trợ giao diện |
+| `thong-bao/`, `tai-lieu/`, `toi/`, `nguoi-dung/`, `don-vi/`, `van-ban-di/` | Hỗ trợ giao diện (`thong-bao/` giữ ở backend, giao diện Trình ký không còn gọi) |
 | `dashboard/` | Dữ liệu Dashboard/Header cho Nhóm 1 |
 
 Thao tác đổi trạng thái bắt buộc header `Idempotency-Key`. Lỗi trả dạng `{"code", "detail", "fields"}` (tiếng Việt).
@@ -109,16 +112,24 @@ Thao tác đổi trạng thái bắt buộc header `Idempotency-Key`. Lỗi tr�
   khớp "Mua sắm", "10/qd" khớp "10/QĐ".
 - Mỗi văn bản đi chỉ có một hồ sơ đang mở (nháp hoặc đang chờ ký). Tạo nháp, gửi trình hoặc trình lại khi văn bản đang có
   hồ sơ mở khác trả 409 `van_ban_da_co_ho_so_dang_mo`. Hồ sơ đã hoàn thành, từ chối hoặc hủy không chặn việc trình mới.
-  Văn bản nhập tay không áp quy tắc này.
-- Văn bản trình ký khi tạo hồ sơ (`POST trinh-ky/`, multipart): `van_ban_id` (+ `document_type=vanbandi`) để gắn văn bản
-  đi, **hoặc** `trich_yeu_van_ban` (bắt buộc) và `so_hieu_van_ban` (tùy chọn) khi nhập văn bản khác; thiếu cả hai trả
-  400 `thieu_van_ban_trinh_ky`. Tệp PDF trình ký (`tep`) luôn bắt buộc. Hồ sơ trả `van_ban` (`so_hieu`, `trich_yeu`) theo
-  đúng nguồn; sửa nháp nhập tay được đổi số hiệu/trích yếu (hồ sơ gắn văn bản đi: 400 `van_ban_da_gan`).
+  PDF dự thảo chưa vào sổ không áp quy tắc này.
+- Văn bản trình ký khi tạo hồ sơ (`POST trinh-ky/`, multipart) dùng đúng một nguồn: (1) văn bản đi đã đăng ký với
+  `van_ban_id` (`document_type=vanbandi`) và `tep_dinh_kem_id` là tệp PDF còn hiệu lực trên chính bản ghi đó; không
+  nhận thêm `tep`; hoặc (2) `tep` tải lên từ máy, `trich_yeu_van_ban` bắt buộc và `so_hieu_van_ban` tùy chọn làm số
+  tham chiếu. Nguồn (2) là PDF dự thảo chưa vào sổ, mã hồ sơ trình ký do hệ thống tự cấp; số tham chiếu không phải số
+  văn bản chính thức. Server kiểm nội dung PDF, dung lượng tối đa 20 MB, rồi sao chép vào kho Trình ký riêng và tính
+  SHA-256. Hồ sơ trả `van_ban` (`so_hieu`, `trich_yeu`) theo đúng nguồn; sửa nháp nhập tay được đổi số hiệu/trích yếu
+  (hồ sơ gắn văn bản đi: 400 `van_ban_da_gan`).
+- Sau khi hồ sơ nguồn dự thảo hoàn tất duyệt nội bộ và tệp hoàn tất tạo thành công, người tạo đăng ký tệp hoàn tất qua
+  phân hệ Văn bản đi rồi gọi `POST trinh-ky/{id}/lien-ket-van-ban-di/` với `van_ban_id`. API chỉ cho liên kết một lần,
+  kiểm người tạo, quyền xem văn bản đi, phạm vi không hạn chế, trạng thái hồ sơ và tệp hoàn tất; ghi nhật ký. Trình ký
+  không tự tạo bản ghi, cấp số văn bản hoặc chuyển tệp sang kho Văn bản đi. Sau liên kết, số hiệu và trích yếu lấy từ
+  bản ghi Văn bản đi.
 - Bộ lọc ngày `tu_ngay`/`den_ngay` (YYYY-MM-DD) của danh sách hồ sơ, `tai-lieu/` và `thong-ke/`: ngày không có trong
   lịch (tháng 13, 30/02) hoặc `tu_ngay` > `den_ngay` trả 400 `tham_so_khong_hop_le`. Từ khóa `q` bỏ ký tự NUL, cắt
   khoảng trắng, tối đa 100 ký tự.
 - Giới hạn nhập tay (serializer; giao diện đặt `maxLength` bằng đúng các số này): trích yếu văn bản 1000 ký tự; số hiệu
-  100; ghi chú (hồ sơ, ký, cấp ký), mô tả quy trình, lý do (hủy, từ chối, trả sửa, ủy quyền, thu hồi khóa), tin nhắn
+  100; ghi chú (hồ sơ, ký, cấp ký), mô tả quy trình, lý do (hủy, từ chối, trả sửa, thu hồi khóa), tin nhắn
   trao đổi 2000; tên quy trình 255; mã quy trình 50 ký tự gồm chữ không dấu, số, `-`, `_`, `.` (không trùng khi khác
   hoa thường); `so_gio_xu_ly` của cấp 0–8760 giờ. Một người (hoặc một chức vụ cùng phạm vi) chỉ xuất hiện một lần trong
   một cấp ký (400 `nguoi_ky_trung_trong_cap`).
@@ -137,7 +148,7 @@ Thao tác đổi trạng thái bắt buộc header `Idempotency-Key`. Lỗi tr�
 
 Yêu cầu đăng nhập (JWT); chưa đăng nhập trả 401. Chỉ dữ liệu của người đang đăng nhập. Backend có thể gọi
 `signing.selectors.tong_quan_dashboard(user)`. Mẫu (rút gọn từ dữ liệu `seed_signing_demo`, tài khoản `truongphong`;
-bản đầy đủ ở `du-lieu-mau-va-tinh-trang-nghiep-vu.md` mục 6.2):
+bản đầy đủ ở `du-lieu-mau-va-tinh-trang-nghiep-vu.md` mục 5.2):
 
 ```json
 {
@@ -218,7 +229,7 @@ không nạp được.
 2. Kiểm tra cấu hình: `pnpm manage check` (không có `signing.W002`, `signing.W003`), rồi gửi thư thử:
    `pnpm manage sendtestemail <email nhận>`.
 3. Tài khoản mẫu cần có email thì thông báo mới có kênh email: chạy `seed_signing_demo --email-domain <miền>` (gán
-   `<username>@<miền>` cho tài khoản mẫu chưa có email). Không có email thì chỉ có thông báo trong ứng dụng.
+   `<username>@<miền>` cho tài khoản mẫu chưa có email). Không có email thì thông báo chỉ ghi vào outbox, không gửi email.
 4. Email lỗi được ghi `THAT_BAI` kèm lý do trong `signing_notification`; sửa cấu hình xong chạy
    `python manage.py gui_thong_bao_trinh_ky` để gửi lại.
 
@@ -235,11 +246,11 @@ python manage.py runserver                              # cùng `pnpm dev` ở f
 ```
 
 Trên staging, deploy chỉ chạy migration; lệnh dữ liệu mẫu chạy tay một lần trên máy chủ (xem
-`du-lieu-mau-va-tinh-trang-nghiep-vu.md` mục 5.6).
+`du-lieu-mau-va-tinh-trang-nghiep-vu.md` mục 4.6).
 
-Tài khoản mẫu: `truongphong` (ký cấp 1, có hồ sơ chờ ký), `giamdoc` (ký cấp 2, ký thay theo ủy quyền), `vanthu`
-(người trình, đủ trạng thái), `chuyenvien` (soạn nháp), `admin` (quản trị, ủy quyền). Sau khi chạy lệnh mẫu, mỗi người
-ký tự tạo khóa ký ở trang **Khóa ký & PIN** (tải file khóa) trước khi ký.
+Tài khoản mẫu: `truongphong` (ký cấp 1, có hồ sơ chờ ký), `giamdoc` (ký cấp 2), `vanthu`
+(người trình, đủ trạng thái), `chuyenvien` (soạn nháp), `admin` (quản trị). Sau khi chạy lệnh mẫu, mỗi người
+ký tự tạo khóa ký ở trang **Cấu hình khóa ký** (tải file khóa) trước khi ký.
 
 ## 7. Kiểm thử
 
@@ -253,17 +264,21 @@ pnpm --dir frontend test && pnpm --dir frontend build
 
 Kết quả tại PR #251 (local, PostgreSQL 16): backend toàn bộ 1069 test, 0 skip, đạt; `test signing` 265 test đạt;
 frontend lint, typecheck, i18n, tokens sạch, 525 test đạt, build đạt. E2E Playwright Chromium trên dữ liệu mẫu: tạo
-khóa và tải file khóa, ký bằng file khóa + PIN, trả sửa, gửi bản sửa, không đồng ý ban hành, hủy, ủy quyền, xem PDF
+khóa và tải file khóa, ký bằng file khóa + PIN, trả sửa, gửi bản sửa, không đồng ý ban hành, hủy, xem PDF
 desktop và mobile 390px, thông báo có người thực hiện và lý do.
 
-Báo cáo chi tiết các luồng nghiệp vụ (Happy path, Trả sửa lượt 2, Từ chối, Ủy quyền), ca biên (Edge cases) và nhật ký bằng chứng kiểm thử: xem tại [`FLOW_TEST_EVIDENCE.md`](./FLOW_TEST_EVIDENCE.md). Danh mục 118 test case đối chiếu theo Issue #80 và #248: xem tại [`qa-test-cases-80.md`](./qa-test-cases-80.md).
+Báo cáo chi tiết các luồng nghiệp vụ (Happy path, Trả sửa lượt 2, Từ chối), ca biên (Edge cases) và nhật ký bằng chứng kiểm thử: xem tại [`FLOW_TEST_EVIDENCE.md`](./FLOW_TEST_EVIDENCE.md). Danh mục 116 test case đối chiếu theo Issue #80 và #248: xem tại [`qa-test-cases-80.md`](./qa-test-cases-80.md).
 
 ## 8. Chưa làm và lý do
 
-- Ủy quyền theo thời gian (`signing_delegation`) và thể thức `hinh_thuc_ky` (KT./TL./TUQ.): DDL chưa có bảng/cột, cần
-  PR đổi schema riêng (DDL + migration + `DDL_CHANGELOG.md`).
+- Ký nháy, ủy quyền ký (theo thời gian và khẩn cấp) và thể thức KT./TL./TUQ.: chưa có. Trước khi bổ sung cần chốt
+  chính sách nghiệp vụ (ai được ký thay, giới hạn theo loại văn bản hoặc giá trị, cách thể hiện trên khối chữ ký) và
+  thực hiện bằng PR đổi schema riêng (DDL + migration + `DDL_CHANGELOG.md`).
 - Nhóm Chuyên viên (CV) đã được cấp quyền `send_trinhky` qua PR #254 (migration `authorization/0007_grant_cv_send_trinhky`, issue #226), cho phép chuyên viên tự gửi hồ sơ do mình tạo.
-- Đánh dấu đã đọc thông báo lưu ở trình duyệt; bảng `signing_notification` chưa có cột đã đọc.
+- Tab "Thông báo" và trang `/approvals/thong-bao` đã bỏ khỏi giao diện (issue #355). Thông báo vẫn gửi qua email và
+  outbox `signing_notification` (`gui_thong_bao_trinh_ky`, `nhac_han_trinh_ky`); API `thong-bao/` giữ nguyên. Đường dẫn
+  `/approvals/thong-bao` chuyển về trang chính. Phân trang, tìm kiếm, lọc loại và đánh dấu đã xem của PR #344 chỉ còn
+  ở backend.
 - Tìm không dấu dùng `LOWER(TRANSLATE(...))` sẵn có của PostgreSQL, quét tuần tự (đủ cho quy mô hiện tại). Muốn dùng
   extension `unaccent` và index theo biểu thức thì phải đổi `release_DDL.sql` (`CREATE EXTENSION`, function
   `IMMUTABLE`, index), cần PR đổi schema riêng theo AGENTS.md mục 5–6. Dữ liệu lưu dạng tổ hợp (NFD) chưa được chuẩn
@@ -290,7 +305,6 @@ Báo cáo chi tiết các luồng nghiệp vụ (Happy path, Trả sửa lượt
 
 ## 10. Nhật ký thay đổi PR #251
 
-- Ủy quyền ký khẩn cấp `POST trinh-ky/{id}/uy-quyen/`; người giao ủy quyền vẫn xem được hồ sơ; giao diện "Ký thay".
 - File khóa `.tlbmkey` (bản bọc private key): xuất khi tạo khóa và đổi PIN, nhập vào thiết bị, ký bằng file + PIN.
 - Thông báo: hủy báo người tạo (khi hủy thay) và người đã ký; tin nhắn trao đổi; nhắc hạn/quá hạn (`nhac_han_trinh_ky`);
   số thông báo mới ở tab; email và thông báo ghi người thực hiện và lý do.
@@ -317,7 +331,9 @@ Báo cáo chi tiết các luồng nghiệp vụ (Happy path, Trả sửa lượt
   (`GET /api/accounts/staffs/`), theo chức vụ lấy từ Danh mục chức vụ (`GET /api/positions/?all=true`, cần quyền
   `view_chucvu`; nhóm ADMIN, TP có sẵn). Phạm vi chức vụ chọn trên form: trong đơn vị người trình hoặc toàn cơ quan.
   Người cụ thể giữ chức vụ được xác định lúc gửi (như trước).
-- Văn bản trình ký: chọn văn bản đi không bắt buộc; nhập văn bản khác (số hiệu, trích yếu, tệp PDF). Schema đổi ở PR
+- Văn bản trình ký: chọn văn bản đi đã đăng ký và một PDF đính kèm của chính bản ghi; hoặc tải PDF dự thảo chưa vào sổ
+  với mã hồ sơ tự cấp (số hiệu tham chiếu, trích yếu). Sau khi hoàn tất duyệt, người tạo đăng ký tệp hoàn tất trong Văn
+  bản đi rồi liên kết hồ sơ; Trình ký không cấp số hoặc tự tạo bản ghi. Schema đổi ở PR
   riêng (#274): `signing_request.document_type`, `document_id` cho phép NULL; thêm `so_hieu_van_ban`,
   `trich_yeu_van_ban`; CHECK `chk_signing_request_van_ban`; migration `signing/0015_van_ban_trinh_ky_khac`.
 - Nhãn "Văn bản" đổi thành "Văn bản trình ký": cột danh sách, form tạo, khối thông tin trang chi tiết, email thông báo,
@@ -333,8 +349,7 @@ Báo cáo chi tiết các luồng nghiệp vụ (Happy path, Trả sửa lượt
 - Dữ liệu cán bộ: Trình ký đọc qua lớp `tich_hop/to_chuc.py` (model của Nhóm 7) và API công khai của CBNV ở giao diện;
   bản chụp tên người ký/chức vụ trên lượt trình là bằng chứng bất biến, không phải danh bạ riêng. Đề xuất Nhóm 7 bổ
   sung selector Python công khai (tìm cán bộ, cán bộ theo chức vụ/đơn vị, lãnh đạo đơn vị) để thay các truy vấn trực
-  tiếp trong `tich_hop/to_chuc.py`. API `nguoi-dung/` giữ cho ủy quyền ký (lọc theo quyền `sign_trinhky` là quy tắc của
-  Trình ký).
+  tiếp trong `tich_hop/to_chuc.py`. API `nguoi-dung/` chỉ phục vụ chọn người ký khi cấu hình quy trình.
 
 ## 12. Rà soát trước kiểm thử chéo (issue #286, PR #287)
 
@@ -353,7 +368,7 @@ chữ, i18n, kiểm tra nhập liệu, truy cập). Danh sách lỗi và bằng 
 - **Hộp thoại**: tiêu điểm vào ô nhập đầu tiên, Tab quay vòng trong hộp, trả tiêu điểm khi đóng, Esc và bấm nền đóng
   (hộp trên cùng), chặn đóng khi đang gửi; hộp xem tệp của "Văn bản công khai" dùng chung khung này.
 - **Đường dẫn**: `/approvals/<không phải số nguyên dương>` báo không tìm thấy mà không gọi API; đường dẫn con không có
-  trang hiện "Trang không tồn tại"; lỗi 404 có đường về danh sách (không có "Thử lại"); vào thẳng "Khóa ký & PIN",
+  trang hiện "Trang không tồn tại"; lỗi 404 có đường về danh sách (không có "Thử lại"); vào thẳng "Cấu hình khóa ký",
   "Tạo hồ sơ" khi thiếu quyền thì báo ngay.
 - **Nhập liệu**: chặn ở trình duyệt tệp rỗng, không phải PDF, quá 20 MB và hạn chót ở quá khứ (không gửi request);
   `maxLength` khớp máy chủ; xóa thông báo lỗi cũ khi đổi dữ liệu; tìm văn bản đi chờ ngừng gõ; "Văn bản công khai" tự áp
@@ -362,7 +377,7 @@ chữ, i18n, kiểm tra nhập liệu, truy cập). Danh sách lỗi và bằng 
   nhận; kiểm tra mã và số giờ ngay trên form. **Khóa ký**: thu hồi khóa cần xác nhận; ô nhập file khóa theo ngôn ngữ
   giao diện.
 - **Hiển thị**: danh sách hồ sơ chuyển sang dạng thẻ dưới 1024px, "Văn bản công khai" dưới 1280px (bảng không còn cắt cột
-  Hạn chót ở 768px); chuỗi dài không có dấu cách xuống dòng, tiêu đề tối đa 3 dòng trong thẻ; trang Khóa ký không tràn
+  Hạn chót ở 768px); chuỗi dài không có dấu cách xuống dòng, tiêu đề tối đa 3 dòng trong thẻ; trang Cấu hình khóa ký không tràn
   ngang ở 390px; số trên thẻ lọc khớp danh sách; số "Cần tôi ký duyệt" và thông báo mới tải lại ngay sau thao tác;
   hạn xử lý của cấp hiện khi hồ sơ không đặt hạn chót; chi tiết hiện ghi chú; tin nhắn trao đổi hiện tên người viết;
   thông báo ghi rõ chỉ hiển thị 50 mục gần nhất; nút "Xem trước và đặt vị trí ký" không còn là nút lồng trong liên kết.
@@ -379,3 +394,6 @@ Kết quả kiểm tra local (PostgreSQL 16): `manage.py check` và `makemigrati
 toàn bộ 1160 test đạt (1 skip có sẵn); frontend lint, `tsc -b`, `check:i18n`, `check:tokens` sạch, 628 test đạt, build
 đạt (cảnh báo chunk lớn do bundle chung, không thuộc Nhóm 5). E2E Playwright Chromium: hộp thoại, đường dẫn sai, tệp và
 hạn chót sai, form quy trình, trao đổi, ký bằng file khóa + PIN (kể cả Enter), số đếm sau khi ký, 768px và 390px.
+
+Ghi chú #355: các mục "số thông báo mới ở tab" và "thông báo chỉ hiển thị 50 mục gần nhất" ở trên không còn áp dụng
+vì tab Thông báo đã bỏ khỏi giao diện.

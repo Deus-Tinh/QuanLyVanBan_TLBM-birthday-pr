@@ -7,14 +7,15 @@ import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge, Button, Card } from '@components/common';
 import type { BadgeProps } from '@components/common/Badge';
+import { BoLocKhung, TruongLoc } from '@components/signing/BoLocTrinhKy';
 import { DangTai, KhungModal, LoiTai, Rong, ThongBao } from '@components/signing/ChungUI';
 import LocKhoangNgay from '@components/signing/LocKhoangNgay';
 import { PhanTrang } from '@components/signing/PhanTrang';
 import XemPdf from '@components/signing/XemPdf';
 import { docLoi, SO_HO_SO_MOI_TRANG, signingApi } from '@lib/signing/api';
-import { dinhDangNgay, LOP_O_NHAP, moTaVanBan, taiXuong } from '@lib/signing/dinhDang';
+import { dinhDangNgay, inPdf, LOP_O_NHAP, moTaVanBan, taiXuong, tenTepTaiVe } from '@lib/signing/dinhDang';
 import { useTai } from '@lib/signing/hooks';
-import { useSigningT } from '@lib/signing/i18n';
+import { useSigningT, type HamDich } from '@lib/signing/i18n';
 import type { BoLocTaiLieu, LoaiTepTaiLieu, TepTaiLieu } from '@lib/signing/types';
 
 const LOAI: LoaiTepTaiLieu[] = ['DU_THAO', 'LUOT', 'HOAN_TAT'];
@@ -29,13 +30,21 @@ const MAU_LOAI_TEP: Record<LoaiTepTaiLieu, BadgeProps['variant']> = {
   HOAN_TAT: 'success',
 };
 const TRE_TIM_KIEM_MS = 300;
-const LOP_NHAN = 'mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-secondary';
 
 
 function layTep(tep: TepTaiLieu): Promise<Blob> {
   if (tep.loai === 'HOAN_TAT') return signingApi.tepHoanTat(tep.trinh_ky);
   if (tep.loai === 'LUOT' && tep.luot) return signingApi.tepCuaLuot(tep.trinh_ky, tep.luot);
   return signingApi.tepGoc(tep.trinh_ky);
+}
+
+function nhanTep(tep: TepTaiLieu, t: HamDich): string {
+  if (tep.loai === 'LUOT') {
+    return tep.so_luot != null
+      ? t('taiLieu.tenTep.LUOT', { so: tep.so_luot })
+      : t('taiLieu.tenTep.luotKhongRo');
+  }
+  return t(`taiLieu.tenTep.${tep.loai}`);
 }
 
 export default function TaiLieuPage() {
@@ -92,33 +101,36 @@ export default function TaiLieuPage() {
     if (!tepXem || taiVe.dang) return;
     setTaiVe({ dang: true, loi: null });
     try {
-      taiXuong(await layTep(tepXem), tepXem.ten_tep);
+      taiXuong(await layTep(tepXem), tenTepTaiVe(tepXem.trinh_ky, tepXem.loai, tepXem.so_luot));
       setTaiVe({ dang: false, loi: null });
     } catch (err) {
       setTaiVe({ dang: false, loi: err });
     }
   };
 
+  // Dùng lại dữ liệu đã tải để xem (không gọi API thêm lần nữa)
+  const inTepXem = () => {
+    if (duLieuXem?.buf) inPdf(new Blob([duLieuXem.buf], { type: 'application/pdf' }));
+  };
+
   return (
     <div className="space-y-4">
-      <Card className="p-4 sm:p-5">
+      <BoLocKhung>
         <form className="grid grid-cols-1 items-end gap-3 md:grid-cols-2 lg:grid-cols-12"
           onSubmit={(e) => { e.preventDefault(); dat({ q: tuKhoa.trim() }); }}>
-          <label className="block lg:col-span-4">
-            <span className={LOP_NHAN}><i className="fa-solid fa-magnifying-glass text-primary" aria-hidden="true" />{t('danhSach.timKiem')}</span>
+          <TruongLoc nhan={t('danhSach.timKiem')} icon="fa-magnifying-glass" className="lg:col-span-4">
             <span className="relative block">
               <input className={`${LOP_O_NHAP} pl-9`} type="search" value={tuKhoa} placeholder={t('taiLieu.goiYTim')}
                 onChange={(e) => setTuKhoa(e.target.value)} />
               <i className="fa-solid fa-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted" aria-hidden="true" />
             </span>
-          </label>
-          <label className="block lg:col-span-2">
-            <span className={LOP_NHAN}><i className="fa-solid fa-file text-primary" aria-hidden="true" />{t('taiLieu.loaiTep')}</span>
+          </TruongLoc>
+          <TruongLoc nhan={t('taiLieu.loaiTep')} icon="fa-file" className="lg:col-span-2">
             <select className={LOP_O_NHAP} value={loc.loai ?? ''} onChange={(e) => dat({ loai: e.target.value as LoaiTepTaiLieu | '' })}>
               <option value="">{t('danhSach.tatCa')}</option>
               {LOAI.map((l) => <option key={l} value={l}>{t(`taiLieu.loai.${l}`)}</option>)}
             </select>
-          </label>
+          </TruongLoc>
           <LocKhoangNgay tuNgay={loc.tu_ngay} denNgay={loc.den_ngay} onDoi={dat} lopO="lg:col-span-2" />
           <div className="flex gap-2 lg:col-span-2">
             <Button type="submit" size="sm" icon="fa-filter">{t('danhSach.loc')}</Button>
@@ -129,7 +141,7 @@ export default function TaiLieuPage() {
             )}
           </div>
         </form>
-      </Card>
+      </BoLocKhung>
       <Card className="p-4 space-y-3">
         {ds.dangTai && <DangTai />}
         {ds.loi && <LoiTai thongBao={loi(ds.loi)} onThuLai={ds.tai} />}
@@ -145,15 +157,15 @@ export default function TaiLieuPage() {
                 <div className="flex items-start justify-between gap-2">
                   <button type="button" onClick={() => xemChiTiet(tep)}
                     className="min-w-0 break-words text-left font-semibold text-main hover:text-primary hover:underline line-clamp-3"
-                    title={moTaVanBan(tep.van_ban, tep.trinh_ky)}>
-                    {moTaVanBan(tep.van_ban, tep.trinh_ky)}
+                    title={moTaVanBan(tep.van_ban, t)}>
+                    {moTaVanBan(tep.van_ban, t)}
                   </button>
                   <Badge variant="info" size="sm">{t(`taiLieu.loai.${tep.loai}`)}</Badge>
                 </div>
                 <button type="button" onClick={() => xemChiTiet(tep)} title={t('chiTiet.xemChiTiet')}
-                  className="block break-all text-left text-xs text-secondary hover:text-primary hover:underline">{tep.ten_tep}</button>
+                  className="block break-all text-left text-xs text-secondary hover:text-primary hover:underline">{nhanTep(tep, t)}</button>
                 <div className="flex flex-wrap gap-x-2 text-xs text-muted">
-                  <Link to={`/approvals/${tep.trinh_ky}`} className="font-medium text-secondary hover:text-primary hover:underline">#{tep.trinh_ky}</Link>
+                  <Link to={`/approvals/${tep.trinh_ky}`} className="font-medium text-secondary hover:text-primary hover:underline">{t('danhSach.maHoSo')} #{tep.trinh_ky}</Link>
                   <span>{tep.ten_quy_trinh}</span>
                   <span>{dinhDangNgay(tep.thoi_diem, lang)}</span>
                 </div>
@@ -164,11 +176,11 @@ export default function TaiLieuPage() {
             <table className="w-full min-w-[60rem] text-sm table-fixed">
               <thead>
                 <tr className="border-b border-border-subtle bg-surface-elevated/70 text-xs font-bold uppercase tracking-wider text-muted">
-                  <th className="px-3 py-2.5 text-center whitespace-nowrap w-[12%]">{t('taiLieu.soHieu')}</th>
-                  <th className="px-3.5 py-2.5 text-center w-[29%]">{t('taiLieu.trichYeu')}</th>
+                  <th className="px-3 py-2.5 text-center whitespace-nowrap w-[11%]">{t('taiLieu.soHieu')}</th>
+                  <th className="px-3.5 py-2.5 text-center w-[26%]">{t('taiLieu.trichYeu')}</th>
                   <th className="px-3 py-2.5 text-center whitespace-nowrap w-[17%]">{t('taiLieu.tep')}</th>
-                  <th className="px-2.5 py-2.5 text-center whitespace-nowrap w-[10%]">{t('taiLieu.loaiTep')}</th>
-                  <th className="px-3 py-2.5 text-center whitespace-nowrap w-[6%]">{t('danhSach.maHoSo')}</th>
+                  <th className="px-2.5 py-2.5 text-center whitespace-nowrap w-[9%]">{t('taiLieu.loaiTep')}</th>
+                  <th className="px-3 py-2.5 text-center whitespace-nowrap w-[11%]">{t('danhSach.maHoSo')}</th>
                   <th className="px-3 py-2.5 text-center whitespace-nowrap w-[14%]">{t('danhSach.quyTrinh')}</th>
                   <th className="px-3 py-2.5 text-center whitespace-nowrap w-[12%]">{t('taiLieu.ngay')}</th>
                 </tr>
@@ -203,12 +215,12 @@ export default function TaiLieuPage() {
                         title={t('chiTiet.xemChiTiet')}
                       >
                         <i className={`fa-solid ${BIEU_TUONG[tep.loai]} text-xs shrink-0 opacity-70 group-hover:opacity-100 transition-opacity`} aria-hidden="true" />
-                        <span className="truncate group-hover:underline underline-offset-2">{tep.ten_tep}</span>
+                        <span className="truncate group-hover:underline underline-offset-2">{nhanTep(tep, t)}</span>
                       </button>
                     </td>
                     <td className="px-2.5 py-3 text-center whitespace-nowrap"><Badge variant={MAU_LOAI_TEP[tep.loai]} size="sm">{t(`taiLieu.loai.${tep.loai}`)}</Badge></td>
                     <td className="px-3 py-3 text-center whitespace-nowrap font-medium text-secondary">
-                      <Link to={`/approvals/${tep.trinh_ky}`} className="hover:text-primary hover:underline">#{tep.trinh_ky}</Link>
+                      <Link to={`/approvals/${tep.trinh_ky}`} className="hover:text-primary hover:underline">{t('danhSach.maHoSo')} #{tep.trinh_ky}</Link>
                     </td>
                     <td className="px-3 py-3 text-center text-secondary" title={tep.ten_quy_trinh}>
                       <div className="line-clamp-2 break-words">{tep.ten_quy_trinh}</div>
@@ -234,12 +246,12 @@ export default function TaiLieuPage() {
               <div className="min-w-0 flex-1 pr-4">
                 <div className="flex items-center gap-2">
                   <i className={`fa-solid ${BIEU_TUONG[tepXem.loai]} text-lg shrink-0`} aria-hidden="true" />
-                  <h2 id={nhanId} className="text-base sm:text-lg font-bold text-main truncate">{tepXem.ten_tep}</h2>
+                  <h2 id={nhanId} className="text-base sm:text-lg font-bold text-main truncate">{nhanTep(tepXem, t)}</h2>
                   <Badge variant={MAU_LOAI_TEP[tepXem.loai]} size="sm">{t(`taiLieu.loai.${tepXem.loai}`)}</Badge>
                 </div>
                 <div className="text-xs text-secondary truncate mt-0.5">
                   <Link to={`/approvals/${tepXem.trinh_ky}`} className="font-bold text-primary hover:underline mr-2">
-                    #{tepXem.trinh_ky}
+                    {t('danhSach.maHoSo')} #{tepXem.trinh_ky}
                   </Link>
                   {[tepXem.van_ban.so_hieu, tepXem.van_ban.trich_yeu].filter(Boolean).join(' — ') || tepXem.ten_quy_trinh}
                 </div>
@@ -270,6 +282,9 @@ export default function TaiLieuPage() {
             {/* Footer */}
             <div className="flex items-center justify-end gap-2 border-t border-border-subtle px-5 py-2.5 bg-surface text-xs text-muted shrink-0">
               {taiVe.loi != null && <div className="mr-auto min-w-0"><ThongBao>{loi(taiVe.loi)}</ThongBao></div>}
+              <Button size="sm" variant="secondary" icon="fa-print" disabled={!duLieuXem?.buf} onClick={inTepXem}>
+                {t('chung.in')}
+              </Button>
               <Button size="sm" variant="secondary" icon="fa-download" isLoading={taiVe.dang} onClick={taiTepXem}>
                 {t('chung.taiVe')}
               </Button>

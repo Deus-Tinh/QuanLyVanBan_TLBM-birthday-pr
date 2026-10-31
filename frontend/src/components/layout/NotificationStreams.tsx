@@ -26,10 +26,28 @@ interface ApiTaskItem {
   due?: string;
 }
 
+interface ApiSigningItem {
+  id?: number | string;
+  ma_trinh_ky?: string;
+  tieu_de?: string;
+  nguoi_trinh?: string;
+  ngay_gui?: string;
+  trang_thai?: string;
+  trang_thai_display?: string;
+  can_toi_ky?: boolean;
+}
+
 interface DashboardOverviewApiResponse {
+  kpis?: {
+    incomingCount?: number;
+    outgoingCount?: number;
+    tasksCount?: number;
+    signingCount?: number;
+  };
   recentIncoming?: ApiDocumentItem[];
   recentOutgoing?: ApiDocumentItem[];
   tasks?: ApiTaskItem[];
+  recentSigning?: ApiSigningItem[];
 }
 
 export default function NotificationStreams() {
@@ -51,7 +69,8 @@ export default function NotificationStreams() {
         if (!data) return;
         const recentIncoming = data.recentIncoming || [];
         const recentOutgoing = data.recentOutgoing || [];
-        const tasks = data.tasks || [];
+        const recentSigning = data.recentSigning || [];
+        const signingCount = data.kpis?.signingCount ?? recentSigning.length;
 
         const inItems: NotificationItem[] = recentIncoming
           .filter((d: ApiDocumentItem) => d.scope !== 'HAN_CHE')
@@ -91,16 +110,26 @@ export default function NotificationStreams() {
           scope: 'HAN_CHE',
         }));
 
-        const approvalItems: NotificationItem[] = tasks
-          .filter((t: ApiTaskItem) => t.status === 'pending')
-          .map((t: ApiTaskItem) => ({
-            id: `task-${t.id}`,
-            code: `CV-${t.id}`,
-            title: t.title || '',
-            senderOrDept: t.statusLabel || 'Chờ duyệt',
-            time: t.due || '',
-            isRead: false,
-          }));
+        // Đọc cờ can_toi_ky: chỉ đưa phiếu người dùng có quyền ký vào danh sách chuông
+        const hasCanToiKyFlag = recentSigning.some((s: ApiSigningItem) => s.can_toi_ky !== undefined);
+        const actionableSigning = hasCanToiKyFlag
+          ? recentSigning.filter((s: ApiSigningItem) => s.can_toi_ky === true)
+          : recentSigning;
+
+        const defaultSigningTitle = t('notifications.signingDefaultTitle') || 'Phiếu trình ký văn bản';
+        const submitterPrefix = t('notifications.signingSubmitterPrefix') || 'Người trình';
+        const pendingSigningLabel = t('notifications.signingPendingLabel') || 'Chờ ký';
+
+        const approvalItems: NotificationItem[] = actionableSigning.length > 0
+          ? actionableSigning.map((s: ApiSigningItem) => ({
+              id: `sign-${s.id}`,
+              code: s.ma_trinh_ky || `TK-${s.id}`,
+              title: s.tieu_de || defaultSigningTitle,
+              senderOrDept: s.nguoi_trinh ? `${submitterPrefix}: ${s.nguoi_trinh}` : pendingSigningLabel,
+              time: s.ngay_gui || '',
+              isRead: false,
+            }))
+          : [];
 
         setStreams([
           {
@@ -132,7 +161,7 @@ export default function NotificationStreams() {
             label: 'Chờ Duyệt',
             icon: 'fa-signature',
             color: 'amber',
-            unreadCount: approvalItems.length,
+            unreadCount: signingCount !== undefined ? signingCount : approvalItems.length,
             items: approvalItems,
           },
         ]);
@@ -140,14 +169,22 @@ export default function NotificationStreams() {
       .catch(() => {
         // Dự phòng giữ mảng mặc định nếu chưa đăng nhập hoặc lỗi mạng
       });
-  }, []);
+  }, [t]);
 
   const handleOpenDoc = (item: NotificationItem) => {
     setIsOpen(false);
-    if (activeTab === 'approvals' || item.id.startsWith('task-')) {
+    // 1. Nếu là thông báo hồ sơ trình ký cụ thể: mở đúng trang chi tiết hồ sơ đó
+    if (item.id.startsWith('sign-')) {
+      const signingId = item.id.replace('sign-', '');
+      navigate(`/approvals/${signingId}`);
+      return;
+    }
+    // 2. Nếu ở tab trình ký
+    if (activeTab === 'approvals') {
       navigate('/approvals');
       return;
     }
+    // 3. Xem trước văn bản thường
     setPreviewDoc({
       code: item.code,
       title: item.title,

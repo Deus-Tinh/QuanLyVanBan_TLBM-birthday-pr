@@ -253,13 +253,16 @@ export async function downloadBlob(endpoint: string, defaultFilename?: string): 
   const link = document.createElement('a');
   link.href = blobUrl;
 
-  const disposition = response.headers.get('Content-Disposition');
-  let filename = defaultFilename || t('common.defaultDownloadFilename');
-  if (disposition && disposition.includes('filename=')) {
-    const match = disposition.match(/filename="?([^";]+)"?/);
-    if (match && match[1]) {
-      filename = match[1];
+  let filename = defaultFilename;
+  if (!filename) {
+    const disposition = response.headers.get('Content-Disposition');
+    if (disposition && disposition.includes('filename=')) {
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      if (match && match[1]) {
+        filename = match[1];
+      }
     }
+    filename = filename || t('common.defaultDownloadFilename');
   }
 
   link.setAttribute('download', filename);

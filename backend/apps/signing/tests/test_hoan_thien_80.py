@@ -90,7 +90,7 @@ class PhamViQuyTrinhTests(TrinhKyBase):
         self.assertEqual(self.client_cua(User.objects.get(pk=self.tao.pk)).get(f"{QT}/{nhap5}/").status_code, 404)
 
         r = self.client_cua(User.objects.get(pk=self.cv6.pk)).post(f"{BASE}/", {
-            "document_type": "vanbandi", "van_ban_id": 10, "quy_trinh": pb5.data["id"],
+            "quy_trinh": pb5.data["id"], "trich_yeu_van_ban": "Tài liệu kiểm tra",
             "tep": tep_pdf()}, format="multipart")
         self.assertEqual((r.status_code, r.data["code"]), (403, "quy_trinh_khong_ap_dung"))
         r = self.tao_nhap(quy_trinh=pb5.data["id"])  # người tạo cùng đơn vị dv5

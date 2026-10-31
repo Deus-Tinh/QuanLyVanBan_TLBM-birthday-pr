@@ -182,7 +182,7 @@ class LoiVaThuLaiTests(HoanTatBase):
 
 class TaiLenPdfTests(HoanTatBase):
     def test_unreadable_or_pageless_pdf_rejected_at_upload(self):
-        r = self.c.post(f"{BASE}/", {"document_type": "vanbandi", "van_ban_id": next(self._van_ban_tiep),
-                                     "quy_trinh": self.process.pk, "tep": tep_pdf(b"%PDF-1.4 hong")},
+        r = self.c.post(f"{BASE}/", {"quy_trinh": self.process.pk, "trich_yeu_van_ban": "Tệp lỗi",
+                                     "tep": tep_pdf(b"%PDF-1.4 hong")},
                         format="multipart")
         self.assertEqual((r.status_code, r.data["code"]), (400, "tep_khong_phai_pdf"))

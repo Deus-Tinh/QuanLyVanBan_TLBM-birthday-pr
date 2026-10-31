@@ -177,6 +177,7 @@ class DocumentListSerializer(serializers.Serializer):
     nguoi_tao_username = serializers.CharField(source="nguoi_tao.username", read_only=True, default=None)
     can_edit = serializers.SerializerMethodField()
     can_delete = serializers.SerializerMethodField()
+    can_change_hieu_luc = serializers.SerializerMethodField()
     attachment_count = serializers.SerializerMethodField()
     first_attachment_url = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField(read_only=True)
@@ -259,6 +260,14 @@ class DocumentListSerializer(serializers.Serializer):
             return False
         from .views import can_delete_document
         return can_delete_document(request.user, obj)
+
+    def get_can_change_hieu_luc(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        from .views import can_change_hieu_luc
+        loai = getattr(obj, "loai", None) or getattr(obj, "document_kind", "DEN")
+        return can_change_hieu_luc(request.user, loai)
 
     def get_pham_vi_display(self, obj):
         pv = getattr(obj, "pham_vi", "NOI_BO")
@@ -362,6 +371,7 @@ class DocumentDetailSerializer(serializers.Serializer):
     nguoi_tao_username = serializers.CharField(source="nguoi_tao.username", read_only=True, default=None)
     can_edit = serializers.SerializerMethodField()
     can_delete = serializers.SerializerMethodField()
+    can_change_hieu_luc = serializers.SerializerMethodField()
     nguoi_nhan_list = serializers.SerializerMethodField()
     don_vi_nhan = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField(read_only=True)
@@ -462,6 +472,14 @@ class DocumentDetailSerializer(serializers.Serializer):
         from .views import can_delete_document
         return can_delete_document(request.user, obj)
 
+    def get_can_change_hieu_luc(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        from .views import can_change_hieu_luc
+        loai = getattr(obj, "loai", None) or getattr(obj, "document_kind", "DEN")
+        return can_change_hieu_luc(request.user, loai)
+
     def get_pham_vi_display(self, obj):
         pv = getattr(obj, "pham_vi", "NOI_BO")
         return "Hạn chế" if pv == "HAN_CHE" else "Nội bộ"
@@ -516,6 +534,35 @@ class DocumentDetailSerializer(serializers.Serializer):
         return []
 
 
+def _validate_hieu_luc_permission(attrs, instance=None, request=None, loai="DEN"):
+    """
+    Kiểm tra quyền thay đổi trạng thái hiệu lực (Nhóm 7 contract):
+    - Khi sửa: nếu hieu_luc khác giá trị hiện tại mà user không phải admin và không có
+      change_hieu_luc_<model> thì bị từ chối ValidationError.
+    - Khi tạo: người không có quyền chỉ được để giá trị mặc định CON_HIEU_LUC.
+    """
+    if not request or not getattr(request, "user", None) or not request.user.is_authenticated:
+        return
+
+    from .views import can_change_hieu_luc
+    has_perm = can_change_hieu_luc(request.user, loai)
+    if has_perm:
+        return
+
+    if instance:
+        # Khi sửa văn bản
+        if "hieu_luc" in attrs and attrs["hieu_luc"] != getattr(instance, "hieu_luc", None):
+            raise serializers.ValidationError(
+                {"hieu_luc": "Bạn không có quyền thay đổi trạng thái hiệu lực của văn bản."}
+            )
+    else:
+        # Khi tạo mới văn bản
+        if attrs.get("hieu_luc") and attrs.get("hieu_luc") != HieuLuc.CON_HIEU_LUC:
+            raise serializers.ValidationError(
+                {"hieu_luc": "Bạn không có quyền thiết lập trạng thái hiệu lực khác mặc định khi tạo mới văn bản."}
+            )
+
+
 class DocumentCreateUpdateSerializer(serializers.Serializer):
     """
     Serializer cho tạo mới / cập nhật văn bản (POST, PUT, PATCH).
@@ -556,6 +603,9 @@ class DocumentCreateUpdateSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         loai = attrs.get("loai") or (getattr(self.instance, "loai", None) if self.instance else LoaiVanBan.DEN)
+
+        # Kiểm tra quyền đổi hiệu lực (Issue Nhóm 7: change_hieu_luc_vanbanden / change_hieu_luc_vanbandi)
+        _validate_hieu_luc_permission(attrs, instance=self.instance, request=self.context.get("request"), loai=loai)
 
         # Đảm bảo thời gian ngày đến / ngày ban hành không bị full 0 (00:00:00) khi client gửi ngày dạng YYYY-MM-DD
         now = timezone.now()
@@ -1089,6 +1139,7 @@ class VanBanDenSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         _validate_replacement_link(attrs, self.instance)
+        _validate_hieu_luc_permission(attrs, instance=self.instance, request=self.context.get("request"), loai="DEN")
         return attrs
 
     def update(self, instance, validated_data):
@@ -1115,6 +1166,7 @@ class VanBanDiSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         _validate_replacement_link(attrs, self.instance)
+        _validate_hieu_luc_permission(attrs, instance=self.instance, request=self.context.get("request"), loai="DI")
         return attrs
 
     def update(self, instance, validated_data):

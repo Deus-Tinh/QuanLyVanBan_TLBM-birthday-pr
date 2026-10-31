@@ -35,7 +35,7 @@ def chay(test, *args, **env):
 class DuLieuMauTests(TestCase):
     def setUp(self):
         self.thu_muc = tempfile.mkdtemp()
-        self._cai_dat = override_settings(SIGNING_DOCUMENT_ROOT=self.thu_muc)
+        self._cai_dat = override_settings(SIGNING_DOCUMENT_ROOT=self.thu_muc, DOCUMENT_STORAGE_ROOT=self.thu_muc)
         self._cai_dat.enable()
         tao_don_vi()
 
@@ -68,20 +68,16 @@ class DuLieuMauTests(TestCase):
         self.assertEqual(trinh_ky.luot_hien_hanh(self.ho_so("M06")).trang_thai, "YEU_CAU_SUA")
         self.assertEqual(trinh_ky.luot_hien_hanh(self.ho_so("M07")).so_luot, 2)
         self.assertEqual(SigningRequest.objects.filter(ho_so_goc=self.ho_so("M05"), trang_thai="NHAP").count(), 1)
-        # Hoàn tất có tệp hoàn tất; ủy quyền ghi người giao
+        # Hoàn tất có tệp hoàn tất
         self.assertEqual(trinh_ky.luot_hien_hanh(self.ho_so("M04")).trang_thai_tep_hoan_tat, "THANH_CONG")
-        dong = SigningRequestStepSigner.objects.get(buoc_ky__luot_trinh__trinh_ky=self.ho_so("M10"),
-                                                    uy_quyen_tu__username="truongphong")
-        self.assertEqual(dong.nguoi_ky.username, "giamdoc")
         # Người dùng thấy hồ sơ ở hộp "cần tôi ký"
         giamdoc, truongphong = User.objects.get(username="giamdoc"), User.objects.get(username="truongphong")
         self.assertIn(self.ho_so("M03"), trinh_ky.dang_cho_toi_ky(giamdoc))
-        self.assertIn(self.ho_so("M10"), trinh_ky.dang_cho_toi_ky(giamdoc))
+        self.assertIn(self.ho_so("M10"), trinh_ky.dang_cho_toi_ky(truongphong))
         self.assertIn(self.ho_so("M02"), trinh_ky.dang_cho_toi_ky(truongphong))
         # Lịch sử và thông báo tương ứng
-        self.assertTrue(SigningAuditLog.objects.filter(trinh_ky=self.ho_so("M10"), hanh_dong="UY_QUYEN_KY").exists())
         loai = set(SigningNotification.objects.values_list("loai_thong_bao", flat=True))
-        self.assertTrue({"CAN_KY", "HOAN_THANH", "TU_CHOI", "YEU_CAU_SUA", "HUY", "UY_QUYEN", "TIN_NHAN",
+        self.assertTrue({"CAN_KY", "HOAN_THANH", "TU_CHOI", "YEU_CAU_SUA", "HUY", "TIN_NHAN",
                          "QUA_HAN"} <= loai, loai)
         # Khóa tạm đã thu hồi: không ai còn khóa hoạt động do lệnh tạo
         self.assertFalse(SigningKey.objects.filter(trang_thai=enums.TrangThaiKhoa.HOAT_DONG).exists())
@@ -105,7 +101,7 @@ class DuLieuMauTests(TestCase):
 
     def test_dashboard_data_for_signers_with_distinct_dates(self):
         chay(self, DEMO_PASSWORD=MAT_KHAU)
-        for username, toi_thieu in (("truongphong", 2), ("giamdoc", 3)):
+        for username, toi_thieu in (("truongphong", 2), ("giamdoc", 2)):
             c = APIClient()
             c.force_authenticate(User.objects.get(username=username))
             d = c.get("/api/v1/signing/dashboard/").data
@@ -129,7 +125,7 @@ class DuLieuMauTests(TestCase):
                          .count(), 10)
 
     def test_reset_keeps_recent_dashboard_items_from_new_sample(self):
-        """Sau --reset, 5 phiếu gần nhất của giám đốc chỉ lấy từ bộ mới: đủ Chờ ký, Đã ký, Từ chối, không trùng tiêu đề."""
+        """Sau --reset, 5 phiếu gần nhất của giám đốc chỉ lấy từ bộ mới và có nhãn trạng thái thống nhất."""
         chay(self, DEMO_PASSWORD=MAT_KHAU)
         chay(self, "--reset", DEMO_PASSWORD=MAT_KHAU)
         c = APIClient()
@@ -137,6 +133,10 @@ class DuLieuMauTests(TestCase):
         gan_day = c.get("/api/v1/signing/dashboard/").data["gan_day"]
         self.assertEqual(len(gan_day), 5)
         self.assertEqual(len({p["tieu_de"] for p in gan_day}), 5, gan_day)
-        self.assertTrue({"Chờ ký", "Đã ký", "Từ chối"} <= {p["nhan_trang_thai"] for p in gan_day}, gan_day)
+        self.assertTrue(
+            {"Đang chờ ký", "Hoàn tất duyệt nội bộ", "Đã từ chối"}
+            <= {p["nhan_trang_thai"] for p in gan_day},
+            gan_day,
+        )
         cu = SigningRequest.objects.filter(ghi_chu__startswith="Dữ liệu mẫu cũ").values_list("pk", flat=True)
         self.assertFalse({p["id"] for p in gan_day} & set(cu))

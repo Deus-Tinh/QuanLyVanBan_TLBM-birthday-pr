@@ -4,12 +4,12 @@
   },
   "pages": {
     "approvals": {
-      "title": "Digital Signature & Electronic Approval Workflow",
-      "module": "Module 5: Digital Approvals & Signing",
-      "assignedTeam": "Group 5 (Digital Approvals Subsystem)",
+      "title": "Internal signing",
+      "module": "Internal signing",
+      "assignedTeam": "Group 5 (Signing subsystem)",
       "codeRef": "Item 5.1 · Difficulty: 1.00",
       "isGroup1": false,
-      "desc": "Create signing workflows, inspect approval trees, notify signatories, automated email routing, and PKI digital signatures."
+      "desc": "Submit requests for internal signing, follow progress and receive the approval result."
     }
   }
 }

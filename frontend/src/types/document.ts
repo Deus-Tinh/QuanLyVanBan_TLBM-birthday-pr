@@ -65,6 +65,7 @@ export interface DocumentItem {
   nguoi_tao_username?: string | null;
   can_edit?: boolean;
   can_delete?: boolean;
+  can_change_hieu_luc?: boolean;
   attachment_count: number;
   first_attachment_url?: string | null;
   created_at: string;
