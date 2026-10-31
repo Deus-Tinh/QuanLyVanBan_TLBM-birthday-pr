@@ -1,6 +1,6 @@
 """
 DDL Phase 7 Trình ký (PR #111, Issue #80): nhóm Trưởng phòng có manage_signing_process,
-tổng 198 lượt gán quyền khớp DDL (thêm send_trinhky cho CV, issue #226), và migration 0004 gán bổ sung trên DB đã seed từ trước.
+tổng 195 lượt gán quyền khớp DDL (thêm send_trinhky cho CV, issue #226; bỏ view_read_log_* khỏi VT và TP, [RLOG]), và migration 0004 gán bổ sung trên DB đã seed từ trước.
 """
 from importlib import import_module
 
@@ -21,13 +21,13 @@ class TruongPhongSigningProcessTest(TestCase):
     def test_seed_grants_manage_signing_process_to_tp(self):
         self.assertIn("manage_signing_process", GROUP_PERMISSIONS["Trưởng phòng"])
 
-    def test_seed_has_198_group_permission_rows(self):
+    def test_seed_has_195_group_permission_rows(self):
         groups = {}
         for mapping in (GROUP_PERMISSIONS, EXTRA_GROUP_PERMISSIONS):
             for group_name, codenames in mapping.items():
                 groups.setdefault(group_name, set()).update(codenames)
-        self.assertEqual(sum(len(codenames) for codenames in groups.values()), 198)
-        self.assertEqual(len(groups["Trưởng phòng"]), 28)
+        self.assertEqual(sum(len(codenames) for codenames in groups.values()), 195)
+        self.assertEqual(len(groups["Trưởng phòng"]), 27)
 
     def test_database_after_migrate_matches_ddl(self):
         tp = Group.objects.get(name="Trưởng phòng")

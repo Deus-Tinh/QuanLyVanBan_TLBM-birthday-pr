@@ -490,16 +490,16 @@ export const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                       return (
                         <div
                           key={att.id}
-                          className="flex items-center justify-between p-3 rounded-xl border border-border-subtle bg-surface-subtle hover:bg-surface-elevated transition-colors gap-3"
+                          className="flex items-center justify-between p-3 rounded-xl border border-border-subtle bg-surface-subtle hover:bg-surface-elevated transition-colors gap-3 min-w-0 overflow-hidden"
                         >
-                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="flex items-center gap-3 min-w-0 flex-1 overflow-hidden">
                             <i className={`${getFileIcon(att.file_name)} text-xl shrink-0`} />
-                            <div className="min-w-0 flex-1">
+                            <div className="min-w-0 flex-1 overflow-hidden">
                               <button
                                 type="button"
                                 disabled={isItemLoading}
                                 onClick={() => void handlePreviewAttachment(att.file, att.file_name, att.id)}
-                                className="text-left text-xs font-semibold text-main hover:text-primary transition-colors block truncate cursor-pointer bg-transparent border-0 p-0 max-w-full disabled:opacity-50"
+                                className="text-left text-xs font-semibold text-main hover:text-primary transition-colors block truncate cursor-pointer bg-transparent border-0 p-0 w-full max-w-full disabled:opacity-50"
                                 title={
                                   isBrowserPreviewable(att.file_name)
                                     ? `Xem trước: ${att.file_name} (Mở tab mới)`
@@ -508,7 +508,7 @@ export const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                               >
                                 {att.file_name}
                               </button>
-                              <span className="text-xs text-muted block mt-0.5">
+                              <span className="text-xs text-muted block mt-0.5 truncate" title={`${formatFileSize(att.file_size)} • ${formatDate(att.uploaded_at)}`}>
                                 {formatFileSize(att.file_size)} • {formatDate(att.uploaded_at)}
                               </span>
                             </div>

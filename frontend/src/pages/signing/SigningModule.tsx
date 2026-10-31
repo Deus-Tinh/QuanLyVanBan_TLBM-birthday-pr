@@ -58,8 +58,9 @@ export default function SigningModule() {
   const { t, loi } = useSigningT();
   const toi = useTai(() => signingApi.toi());
   const dieuHuong = useNavigate();
-  const { pathname } = useLocation();
-  // Màn hẹp: thanh tab cuộn ngang, đưa tab đang xem vào vùng nhìn thấy (vd. vào thẳng "Khóa ký & PIN")
+  const location = useLocation();
+  const { pathname } = location;
+  // Màn hẹp: thanh tab cuộn ngang, đưa tab đang xem vào vùng nhìn thấy (vd. vào thẳng "Cấu hình khóa ký")
   const thanhTab = useRef<HTMLElement>(null);
   useEffect(() => {
     thanhTab.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
@@ -93,77 +94,82 @@ export default function SigningModule() {
   return (
     <SigningContext.Provider value={ngu_canh}>
       {/* pb-24: chừa chỗ cho nút trợ lý AI nổi ở góc dưới để không che nút hành động cuối trang */}
-      <div className="signing-scope space-y-5 pb-24 animate-in fade-in duration-150">
-        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 pb-2 mb-2 sm:mb-3">
-          <div className="flex items-center gap-2.5">
-            <span className="w-8 h-8 rounded-lg bg-primary-subtle text-primary flex items-center justify-center font-bold text-sm shrink-0 shadow-2xs">
-              <i className="fa-solid fa-signature text-base" aria-hidden="true" />
-            </span>
-            <h1 className="m-0 text-xl sm:text-2xl font-bold text-main tracking-tight">{t('tieuDe')}</h1>
-          </div>
+      <div className="signing-scope space-y-3.5 pb-24">
+        <h1 className="sr-only">{t('tieuDe')}</h1>
+        <h2 className="sr-only">{tieuDeRoute}</h2>
+
+        <div className="flex items-end justify-between gap-3 border-b border-border-subtle">
+          <nav
+            ref={thanhTab}
+            className="signing-nav-scroll -mb-px flex items-end gap-x-1 overflow-x-auto flex-nowrap whitespace-nowrap touch-pan-x scroll-smooth overscroll-x-contain min-w-0 flex-1 -mx-4 px-4 sm:mx-0 sm:px-0"
+            aria-label={t('tieuDe')}
+          >
+            <div className="flex flex-nowrap items-end gap-1 shrink-0">
+              {tabChinh.map((m) => {
+                const isChiTiet = /^\/approvals\/\d+$/.test(pathname);
+                const hopHienTai = ((location.state as { hop?: string } | null)?.hop) || 'can_toi_ky';
+                const tabActive = isChiTiet
+                  ? (m.den === '/approvals' && hopHienTai === 'can_toi_ky') ||
+                    (m.den === '/approvals/toi-gui' && hopHienTai === 'toi_gui') ||
+                    (m.den === '/approvals/tat-ca' && hopHienTai === 'tat_ca')
+                  : undefined;
+
+                return (
+                  <NavLink
+                    key={m.den}
+                    to={m.den}
+                    end={m.end}
+                    className={({ isActive }) => {
+                      const active = tabActive !== undefined ? tabActive : isActive;
+                      return `-mb-px flex items-center gap-2 border-b-2 px-3 sm:px-4 py-2 text-sm font-semibold transition-colors duration-fast whitespace-nowrap shrink-0 ${
+                        active
+                          ? 'border-primary text-primary'
+                          : 'border-transparent text-secondary hover:text-main hover:border-border'
+                      }`;
+                    }}
+                  >
+                    <i className={`fa-solid ${m.icon}`} aria-hidden="true" />
+                    <span>{m.nhan}</span>
+                    {!!m.so && (
+                      <span className="rounded-full bg-primary-subtle px-2 py-0.5 text-xs font-bold text-primary">
+                        {m.so}
+                      </span>
+                    )}
+                  </NavLink>
+                );
+              })}
+            </div>
+            <div className="mx-1.5 mb-2.5 h-4 w-px bg-border-subtle shrink-0" aria-hidden="true" />
+            <div className="flex flex-nowrap items-end gap-1 shrink-0">
+              {tabPhu.map((m) => (
+                <NavLink
+                  key={m.den}
+                  to={m.den}
+                  className={({ isActive }) =>
+                    `-mb-px flex items-center gap-2 border-b-2 px-3 sm:px-4 py-2 text-sm font-semibold transition-colors duration-fast whitespace-nowrap shrink-0 ${
+                      isActive
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-secondary hover:text-main hover:border-border'
+                    }`
+                  }
+                >
+                  <i className={`fa-solid ${m.icon}`} aria-hidden="true" />
+                  <span>{m.nhan}</span>
+                </NavLink>
+              ))}
+            </div>
+          </nav>
           {coQuyen(toi.duLieu, 'add_trinhky') && (
             <Button
-              size="md"
+              size="sm"
               icon="fa-plus"
-              className="w-full sm:w-auto justify-center shadow-xs self-stretch sm:self-auto"
+              className="shrink-0 shadow-xs mb-1.5"
               onClick={() => dieuHuong('/approvals/tao-moi')}
             >
               {t('nav.taoMoi')}
             </Button>
           )}
-        </header>
-        <nav
-          ref={thanhTab}
-          className="signing-nav-scroll flex items-end gap-x-1 border-b border-border-subtle overflow-x-auto flex-nowrap whitespace-nowrap touch-pan-x scroll-smooth overscroll-x-contain pb-0.5 -mx-4 px-4 sm:mx-0 sm:px-0"
-          aria-label={t('tieuDe')}
-        >
-          <div className="flex flex-nowrap items-center gap-1 shrink-0">
-            {tabChinh.map((m) => (
-              <NavLink
-                key={m.den}
-                to={m.den}
-                end={m.end}
-                className={({ isActive }) =>
-                  `-mb-px flex items-center gap-2 border-b-2 px-3 sm:px-4 py-2 text-sm font-semibold transition-colors duration-fast whitespace-nowrap shrink-0 ${
-                    isActive
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-secondary hover:text-main hover:border-border'
-                  }`
-                }
-              >
-                <i className={`fa-solid ${m.icon}`} aria-hidden="true" />
-                <span>{m.nhan}</span>
-                {!!m.so && (
-                  <span className="rounded-full bg-primary-subtle px-2 py-0.5 text-xs font-bold text-primary">
-                    {m.so}
-                  </span>
-                )}
-              </NavLink>
-            ))}
-          </div>
-          <div className="mx-1.5 mb-2.5 h-4 w-px bg-border-subtle shrink-0" aria-hidden="true" />
-          <div className="flex flex-nowrap items-center gap-1 shrink-0">
-            {tabPhu.map((m) => (
-              <NavLink
-                key={m.den}
-                to={m.den}
-                className={({ isActive }) =>
-                  `-mb-px flex items-center gap-2 border-b-2 px-3 sm:px-4 py-2 text-sm font-semibold transition-colors duration-fast whitespace-nowrap shrink-0 ${
-                    isActive
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-secondary hover:text-main hover:border-border'
-                  }`
-                }
-              >
-                <i className={`fa-solid ${m.icon}`} aria-hidden="true" />
-                <span>{m.nhan}</span>
-              </NavLink>
-            ))}
-          </div>
-        </nav>
-        <h2 className="m-0 border-b border-border-subtle pb-3 text-lg font-bold text-main" aria-live="polite">
-          {tieuDeRoute}
-        </h2>
+        </div>
         {toi.dangTai && !toi.duLieu && <DangTai />}
         {toi.loi && <LoiTai thongBao={loi(toi.loi)} onThuLai={toi.tai} />}
         {toi.duLieu && (

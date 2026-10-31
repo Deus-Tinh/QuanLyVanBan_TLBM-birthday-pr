@@ -72,6 +72,7 @@ describe('BirthdayPage', () => {
     let dayAttempts = 0;
     vi.spyOn(apiClient, 'get').mockImplementation(async (url) => {
       if (url.includes('/calendar/')) return calendar as never;
+      if (url.includes('/logs/')) return { success: true, total: 0, page: 1, total_pages: 1, logs: [] } as never;
       dayAttempts += 1;
       if (dayAttempts === 1) throw new Error('Temporary failure');
       return emptyDay as never;
@@ -89,6 +90,7 @@ describe('BirthdayPage', () => {
     let calendarAttempts = 0;
     vi.spyOn(apiClient, 'get').mockImplementation(async (url) => {
       if (url.includes('/day/')) return emptyDay as never;
+      if (url.includes('/logs/')) return { success: true, total: 0, page: 1, total_pages: 1, logs: [] } as never;
       calendarAttempts += 1;
       if (calendarAttempts === 1) throw new Error('Temporary failure');
       return calendar as never;

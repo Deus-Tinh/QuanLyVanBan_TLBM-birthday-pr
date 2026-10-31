@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiClient, ApiError } from '@lib/apiClient';
 import { t as translate, useTranslation } from '@i18n/translate';
+import BirthdayEmailLogs from './BirthdayEmailLogs';
 import './BirthdayPage.css';
 
 export interface BirthdayStaff {
@@ -618,6 +619,8 @@ export default function BirthdayPage() {
         </section>
 
       </div>
+
+      <BirthdayEmailLogs month={displayMonth} year={displayYear} />
     </main>
   );
 }
