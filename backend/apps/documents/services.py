@@ -12,8 +12,10 @@ Bao gồm:
 
 import io
 import math
+import os
 import re
-from datetime import datetime
+import unicodedata
+from datetime import date, datetime
 from pathlib import Path
 
 from django.conf import settings
@@ -648,27 +650,13 @@ EXCEL_COLUMNS = {
         ("link_thay_the", "Link văn bản thay thế", 28),
         ("ghi_chu", "Ghi chú", 36),
     ],
-    LoaiVanBan.MAT: [
-        ("so_hieu", "Số, ký hiệu VB", 24),
-        ("pham_vi", "Phạm vi", 16),
-        ("ngay_ban_hanh", "Ngày ban hành", 18),
-        ("ngay_van_ban", "Ngày văn bản", 18),
-        ("trich_yeu", "Trích yếu nội dung", 65),
-        ("noi_ban_hanh", "Nơi ban hành", 32),
-        ("nguoi_nhan", "Cán bộ nhận (Username)", 30),
-        ("don_vi_nhan", "Đơn vị nhận", 28),
-        ("nguoi_ky", "Người ký", 22),
-        ("chuc_vu", "Chức vụ", 20),
-        ("hieu_luc", "Hiệu lực", 20),
-        ("tep_dinh_kem", "Tệp đính kèm", 32),
-        ("link_thay_the", "Link văn bản thay thế", 28),
-        ("ghi_chu", "Ghi chú", 36),
-    ],
 }
 
-# Tương thích ngược với các hàm gọi cũ truyền trực tiếp LoaiVanBan
+# 4 mẫu chuẩn của dự án: Đến Nội bộ, Đến Hạn chế, Đi Nội bộ, Đi Hạn chế
+# Tương thích ngược: LoaiVanBan.MAT trỏ trực tiếp về Văn bản Đến - Hạn chế
 EXCEL_COLUMNS[LoaiVanBan.DEN] = EXCEL_COLUMNS[(LoaiVanBan.DEN, PhamVi.NOI_BO)]
 EXCEL_COLUMNS[LoaiVanBan.DI] = EXCEL_COLUMNS[(LoaiVanBan.DI, PhamVi.NOI_BO)]
+EXCEL_COLUMNS[LoaiVanBan.MAT] = EXCEL_COLUMNS[(LoaiVanBan.DEN, PhamVi.HAN_CHE)]
 
 SAMPLE_DATA = {
     (LoaiVanBan.DEN, PhamVi.NOI_BO): {
@@ -732,26 +720,13 @@ SAMPLE_DATA = {
         "link_thay_the": "08/BC-SNN-HC",
         "ghi_chu": "(Dòng ví dụ mẫu — xóa trước khi import)",
     },
-    LoaiVanBan.MAT: {
-        "so_hieu": "01/GM-BGH",
-        "pham_vi": "Hạn chế",
-        "ngay_ban_hanh": "15/09/2026",
-        "ngay_van_ban": "15/09/2026",
-        "trich_yeu": "Kế hoạch bảo vệ an ninh và bí mật nội bộ năm 2026",
-        "noi_ban_hanh": "Ban Giám hiệu",
-        "nguoi_nhan": "admin",
-        "don_vi_nhan": "Ban Giám hiệu",
-        "nguoi_ky": "Hiệu trưởng",
-        "chuc_vu": "Hiệu trưởng",
-        "hieu_luc": "Còn hiệu lực",
-        "tep_dinh_kem": "01_KH_An_ninh_noi_bo.pdf",
-        "link_thay_the": "01/KH-BGH",
-        "ghi_chu": "(Dòng ví dụ mẫu — xóa trước khi import)",
-    },
 }
 
+# 4 mẫu chuẩn của dự án: Đến Nội bộ, Đến Hạn chế, Đi Nội bộ, Đi Hạn chế
+# Tương thích ngược: LoaiVanBan.MAT trỏ trực tiếp về Văn bản Đến - Hạn chế
 SAMPLE_DATA[LoaiVanBan.DEN] = SAMPLE_DATA[(LoaiVanBan.DEN, PhamVi.NOI_BO)]
 SAMPLE_DATA[LoaiVanBan.DI] = SAMPLE_DATA[(LoaiVanBan.DI, PhamVi.NOI_BO)]
+SAMPLE_DATA[LoaiVanBan.MAT] = SAMPLE_DATA[(LoaiVanBan.DEN, PhamVi.HAN_CHE)]
 
 HEADER_COMMENTS = {
     "tep_dinh_kem": (
@@ -810,21 +785,18 @@ def generate_excel_template(loai: str, pham_vi: str = "NOI_BO") -> io.BytesIO:
     is_han_che = (pv_str in ("HAN_CHE", "HẠN CHẾ", "HANCHE") or loai_str in ("MAT", "VANBANMAT"))
     norm_pv = PhamVi.HAN_CHE if is_han_che else PhamVi.NOI_BO
 
-    if loai_str in ("MAT", "VANBANMAT"):
-        norm_loai = LoaiVanBan.MAT
-        active_fill = _header_fill_mat
-        sheet_title = "Mẫu Văn bản Mật"
-    elif loai_str in ("DI", "VANBANDI"):
+    if loai_str in ("DI", "VANBANDI"):
         norm_loai = LoaiVanBan.DI
         active_fill = _header_fill_di_hanche if is_han_che else _header_fill_di_noibo
         sheet_title = "Mẫu VB Đi - Hạn chế" if is_han_che else "Mẫu VB Đi - Nội bộ"
     else:
+        # Văn bản Đến (bao gồm cả trường hợp gọi MAT / Văn bản Mật Đến)
         norm_loai = LoaiVanBan.DEN
         active_fill = _header_fill_den_hanche if is_han_che else _header_fill_den_noibo
         sheet_title = "Mẫu VB Đến - Hạn chế" if is_han_che else "Mẫu VB Đến - Nội bộ"
 
-    columns = EXCEL_COLUMNS.get((norm_loai, norm_pv)) or EXCEL_COLUMNS.get(norm_loai, EXCEL_COLUMNS[LoaiVanBan.DEN])
-    sample = SAMPLE_DATA.get((norm_loai, norm_pv)) or SAMPLE_DATA.get(norm_loai, SAMPLE_DATA[LoaiVanBan.DEN])
+    columns = EXCEL_COLUMNS.get((norm_loai, norm_pv)) or EXCEL_COLUMNS[LoaiVanBan.DEN]
+    sample = SAMPLE_DATA.get((norm_loai, norm_pv)) or SAMPLE_DATA[LoaiVanBan.DEN]
 
     wb = Workbook()
     ws = wb.active
@@ -917,13 +889,39 @@ def _parse_date(value):
         if timezone.is_naive(value):
             return timezone.make_aware(value)
         return value
+    if isinstance(value, date):
+        dt = datetime.combine(value, datetime.min.time())
+        return timezone.make_aware(dt)
     text = str(value).strip()
-    for fmt in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+    if not text:
+        return None
+    for fmt in (
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%d/%m/%Y",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d",
+        "%d-%m-%Y %H:%M:%S",
+        "%d-%m-%Y %H:%M",
+        "%d-%m-%Y",
+    ):
         try:
             dt = datetime.strptime(text, fmt)
             return timezone.make_aware(dt)
         except ValueError:
             continue
+    try:
+        from dateutil import parser as date_parser
+        dt = date_parser.parse(text)
+        if timezone.is_naive(dt):
+            return timezone.make_aware(dt)
+        return dt
+    except Exception:
+        pass
     return None
 
 
@@ -968,10 +966,56 @@ def _parse_hieu_luc(value):
     return HieuLuc.CON_HIEU_LUC
 
 
-def import_from_excel(file_obj, loai: str, user, pham_vi: str = None) -> dict:
+def _clean_attachment_name(name: str) -> str:
+    """
+    Chuẩn hóa tên file đính kèm để so khớp chính xác:
+    - Loại bỏ khoảng trắng thừa đầu/cuối
+    - Chuẩn hóa Unicode tiếng Việt sang dạng dựng sẵn (NFC)
+    - Loại bỏ khoảng trắng thừa trước dấu chấm đuôi mở rộng (VD: 'tai_lieu .pdf' -> 'tai_lieu.pdf')
+    - Chuyển chữ thường
+    """
+    if not name:
+        return ""
+    s = unicodedata.normalize("NFC", str(name)).strip()
+    s = re.sub(r"\s+\.([a-zA-Z0-9]+)$", r".\1", s)
+    return s.lower()
+
+
+def import_from_excel(file_obj, loai: str, user, pham_vi: str = None, attachments: list = None) -> dict:
     """Import dữ liệu văn bản từ file Excel vào đúng model tương ứng."""
     loai_str = str(loai).strip().upper()
     model = get_document_model(loai_str)
+
+    # Lập bản đồ tra cứu file đính kèm tải lên theo tên file (case-insensitive & NFC-normalized)
+    uploaded_files_map = {}
+    uploaded_stems_map = {}
+    if attachments:
+        for att in attachments:
+            att_name = getattr(att, "name", "")
+            if att_name:
+                key_clean = _clean_attachment_name(att_name)
+                uploaded_files_map[key_clean] = att
+                key_raw = str(att_name).strip().lower()
+                if key_raw not in uploaded_files_map:
+                    uploaded_files_map[key_raw] = att
+
+                # Tương thích định dạng Office phổ biến (.doc <-> .docx, .xls <-> .xlsx, .ppt <-> .pptx)
+                stem, ext = os.path.splitext(key_clean)
+                if ext == ".docx":
+                    uploaded_files_map.setdefault(f"{stem}.doc", att)
+                elif ext == ".doc":
+                    uploaded_files_map.setdefault(f"{stem}.docx", att)
+                elif ext == ".xlsx":
+                    uploaded_files_map.setdefault(f"{stem}.xls", att)
+                elif ext == ".xls":
+                    uploaded_files_map.setdefault(f"{stem}.xlsx", att)
+                elif ext == ".pptx":
+                    uploaded_files_map.setdefault(f"{stem}.ppt", att)
+                elif ext == ".ppt":
+                    uploaded_files_map.setdefault(f"{stem}.pptx", att)
+
+                if stem and stem not in uploaded_stems_map:
+                    uploaded_stems_map[stem] = att
 
     wb = load_workbook(file_obj, read_only=True, data_only=True)
     ws = wb.active
@@ -1274,21 +1318,77 @@ def import_from_excel(file_obj, loai: str, user, pham_vi: str = None) -> dict:
                     AttachmentModel = VanBanDiAttachment if base_module == "van-ban-di" else VanBanDenAttachment
 
                     for fn in file_names:
-                        rel_oldfile_sub = f"{base_module}/{pv_folder}/{date_str}/{fn}"
+                        clean_fn = _clean_attachment_name(fn)
+                        fn_stem, _ = os.path.splitext(clean_fn)
+
+                        # 6.1. Ưu tiên 1: Tệp được người dùng kéo thả tải lên trực tiếp trong request import
+                        matched_up_file = (
+                            uploaded_files_map.get(clean_fn)
+                            or uploaded_files_map.get(fn.strip().lower())
+                            or (uploaded_files_map.get(f"{clean_fn}x") if clean_fn.endswith((".doc", ".xls", ".ppt")) else None)
+                            or (uploaded_files_map.get(clean_fn[:-1]) if clean_fn.endswith((".docx", ".xlsx", ".pptx")) else None)
+                            or (uploaded_stems_map.get(fn_stem) if fn_stem else None)
+                        )
+                        if matched_up_file:
+                            up_file = matched_up_file
+                            try:
+                                if hasattr(up_file, "seek"):
+                                    up_file.seek(0)
+                            except Exception:
+                                pass
+
+                            att_real_name = getattr(up_file, "name", "") or fn.strip()
+                            final_name = fn.strip()
+                            if att_real_name and os.path.splitext(att_real_name)[1].lower() != os.path.splitext(fn.strip())[1].lower():
+                                final_name = att_real_name
+
+                            AttachmentModel.objects.create(
+                                document=created_doc,
+                                name=final_name,
+                                file=up_file,
+                                file_size=getattr(up_file, "size", 0),
+                                nguoi_tao=user if user and user.is_authenticated else None,
+                            )
+                            continue
+
+                        # 6.2. Ưu tiên 2: Tìm trong kho tệp lịch sử (oldfile)
+                        rel_oldfile_sub = f"{base_module}/{pv_folder}/{date_str}/{fn.strip()}"
                         db_path = f"oldfile/{rel_oldfile_sub}"
 
                         disk_file = Path(oldfile_root) / rel_oldfile_sub
+                        if not (disk_file.exists() and disk_file.is_file()):
+                            flex_dir = Path(oldfile_root) / base_module / pv_folder
+                            if flex_dir.exists() and flex_dir.is_dir():
+                                found_candidates = list(flex_dir.glob(f"**/{fn.strip()}"))
+                                if not found_candidates and clean_fn:
+                                    found_candidates = [
+                                        cand for cand in flex_dir.glob("**/*")
+                                        if cand.is_file() and (
+                                            _clean_attachment_name(cand.name) == clean_fn
+                                            or (fn_stem and os.path.splitext(_clean_attachment_name(cand.name))[0] == fn_stem)
+                                        )
+                                    ]
+                                if found_candidates:
+                                    disk_file = found_candidates[0]
+                                    rel_sub = disk_file.relative_to(Path(oldfile_root)).as_posix()
+                                    db_path = f"oldfile/{rel_sub}"
+
                         if disk_file.exists() and disk_file.is_file():
+                            att_disk_name = disk_file.name
+                            final_disk_name = fn.strip()
+                            if os.path.splitext(att_disk_name)[1].lower() != os.path.splitext(fn.strip())[1].lower():
+                                final_disk_name = att_disk_name
+
                             AttachmentModel.objects.create(
                                 document=created_doc,
-                                name=fn,
+                                name=final_disk_name,
                                 path=db_path,
                                 nguoi_tao=user if user and user.is_authenticated else None,
                             )
                         else:
                             errors.append({
                                 "row": row_idx,
-                                "message": f"Văn bản '{created_doc.so_hieu}' đã được tạo, nhưng không tìm thấy tệp đính kèm '{fn}' tại kho lịch sử: oldfile/{rel_oldfile_sub}"
+                                "message": f"Văn bản '{created_doc.so_hieu}' đã được tạo, nhưng chưa tìm thấy tệp đính kèm '{fn.strip()}'."
                             })
 
             created_count += 1

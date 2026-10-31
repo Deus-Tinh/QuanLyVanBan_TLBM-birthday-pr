@@ -53,7 +53,7 @@ urlpatterns = [
     path("api/", include("authorization.urls", namespace="authorization")),
 
     # ── Module Nhóm 7 — Tình (Issue #23) ──────────────────────────────────
-    # API Sinh nhật: GET /api/birthdays/calendar/, /api/birthdays/day/, ...
+    # API Sinh nhật: GET /api/birthdays/calendar/, /api/birthdays/day/; POST /api/birthdays/card/.
     path("api/birthdays/", include("birthdays.urls", namespace="birthdays")),
 
     # ── Module Nhóm 8 — Trợ lý AI (Chatbox, RAG) ───────────────────────────

@@ -3,7 +3,7 @@ Dữ liệu mẫu phân hệ Trình ký (Nhóm 5): `manage.py seed_signing_demo 
 Tự đủ trên DB vừa `migrate` (đơn vị, chức vụ, nhóm quyền chuẩn có sẵn từ migration; thiếu đơn vị thì tạo).
 
 Tạo qua chính các service nghiệp vụ (tạo nháp, gửi, ký Ed25519, từ chối, trả sửa, trao đổi, gửi bản sửa, hủy,
-trình lại, ủy quyền) nên lịch sử, bằng chứng, tệp hoàn tất và thông báo nhất quán như thao tác thật:
+trình lại) nên lịch sử, bằng chứng, tệp hoàn tất và thông báo nhất quán như thao tác thật:
 
 - 5 tài khoản: admin (quản trị), vanthu (văn thư, tạo và trình), chuyenvien (soạn nháp), truongphong (trưởng
   phòng, ký cấp 1), giamdoc (giám đốc, ký cấp 2); gán đơn vị, chức vụ, nhóm quyền chuẩn (VT, CV, TP, BGD, ADMIN).
@@ -12,7 +12,7 @@ trình lại, ủy quyền) nên lịch sử, bằng chứng, tệp hoàn tất 
   (sentinel của DDL); admin đã khởi tạo bằng `seed_db`/ADMIN_PASSWORD thì giữ nguyên.
 - 4 quy trình mẫu (3 đang hoạt động: hai cấp tuần tự, một cấp và hai người ký song song; 1 nháp).
 - Hồ sơ ở đủ trạng thái: nháp, đang ký (cấp 1, cấp 2), quá hạn, hoàn thành (có bằng chứng và tệp hoàn tất),
-  bị từ chối (kèm hồ sơ trình lại), trả lại để sửa (có trao đổi), đã sửa và trình lại lượt 2, đã hủy, ủy quyền ký.
+  bị từ chối (kèm hồ sơ trình lại), trả lại để sửa (có trao đổi), đã sửa và trình lại lượt 2, đã hủy, ký song song.
 - Thông báo trong ứng dụng sinh từ các thao tác trên và lệnh nhắc hạn. Ngày trình giãn theo nhiều ngày để
   Dashboard (Nhóm 1, `signing.selectors.tong_quan_dashboard`) có phiếu gần đây với ngày khác nhau.
 - `--reset`: làm mới bộ hồ sơ mẫu. Bằng chứng (lượt trình, chữ ký, nhật ký, bằng chứng tổng hợp) bất biến theo
@@ -23,7 +23,7 @@ trình lại, ủy quyền) nên lịch sử, bằng chứng, tệp hoàn tất 
   thông báo trong ứng dụng, không có email.
 
 Ký mẫu dùng khóa Ed25519 tạm sinh trong bộ nhớ (khóa bí mật không lưu); xong thì thu hồi khóa tạm, người dùng tự tạo
-khóa ký của mình ở trang Khóa ký (file khóa + PIN). Hồ sơ nhận diện qua ghi chú "Dữ liệu mẫu <mã>:".
+khóa ký của mình ở trang Cấu hình khóa ký (file khóa + PIN). Hồ sơ nhận diện qua ghi chú "Dữ liệu mẫu <mã>:".
 """
 
 import base64
@@ -46,10 +46,10 @@ from documents.models import PhamVi, VanBanDi, VanBanDiAttachment
 from organizations.models import DonVi, KhoiKhuVuc
 from signing import enums
 from signing.models import (
-    SigningAttempt, SigningDelegationRole, SigningKey, SigningProcess, SigningRequest, SigningRequestStep, SigningRequestStepSigner,
+    SigningAttempt, SigningKey, SigningProcess, SigningRequest, SigningRequestStep,
 )
 from signing.pdf_hoan_tat import tim_phong_chu
-from signing.services import hanh_dong_ky, keys, process, thong_bao, trinh_ky, uy_quyen, yeu_cau_sua
+from signing.services import hanh_dong_ky, keys, process, thong_bao, trinh_ky, yeu_cau_sua
 
 TIEN_TO = "Dữ liệu mẫu"
 TIEN_TO_CU = "Dữ liệu mẫu cũ"
@@ -68,18 +68,18 @@ TAI_KHOAN = {
 # mã: (tên, mô tả, cấp ký [(tên cấp, số giờ, [(username, vai trò)])], kích hoạt)
 QUY_TRINH = {
     "QT-TK-HAI-CAP": ("Duyệt tờ trình hai cấp", "Trưởng phòng duyệt, sau đó Giám đốc duyệt.", [
-        ("Trưởng phòng duyệt", 24, [("truongphong", "KY_CHINH")]),
-        ("Giám đốc duyệt", 48, [("giamdoc", "KY_CHINH")]),
+        ("Trưởng phòng duyệt", 24, ["truongphong"]),
+        ("Giám đốc duyệt", 48, ["giamdoc"]),
     ], True),
     "QT-TK-MOT-CAP": ("Duyệt một cấp", "Giám đốc phê duyệt.", [
-        ("Phê duyệt", 48, [("giamdoc", "KY_CHINH")]),
+        ("Phê duyệt", 48, ["giamdoc"]),
     ], True),
     "QT-TK-SONG-SONG": ("Lấy ý kiến song song", "Trưởng phòng và Quản trị ký song song, sau đó Giám đốc duyệt.", [
-        ("Lấy ý kiến các bộ phận", 24, [("truongphong", "KY_CHINH"), ("admin", "KY_CHINH")]),
-        ("Giám đốc duyệt", 48, [("giamdoc", "KY_CHINH")]),
+        ("Lấy ý kiến các bộ phận", 24, ["truongphong", "admin"]),
+        ("Giám đốc duyệt", 48, ["giamdoc"]),
     ], True),
     "QT-TK-NHAP": ("Quy trình đang soạn", "Quy trình nháp để thử sửa, kích hoạt, nhân bản.", [
-        ("Trưởng phòng duyệt", None, [("truongphong", "KY_CHINH")]),
+        ("Trưởng phòng duyệt", None, ["truongphong"]),
     ], False),
 }
 
@@ -261,8 +261,8 @@ class Command(BaseCommand):
                 qt = process.tao_quy_trinh(nguoi["admin"], ma_quy_trinh=ma, ten_quy_trinh=ten, mo_ta=mo_ta,
                                            pham_vi=enums.PhamViQuyTrinh.CONG_TY, cap_ky=[
                     {"cap_ky": i, "ten_cap_ky": ten_cap, "thu_tu": i, "so_gio_xu_ly": so_gio, "nguoi_ky": [
-                        {"nguoi_ky": nguoi[u], "vai_tro_ky": vai_tro, "thu_tu": j}
-                        for j, (u, vai_tro) in enumerate(ds, start=1)]}
+                        {"nguoi_ky": nguoi[u], "thu_tu": j}
+                        for j, u in enumerate(ds, start=1)]}
                     for i, (ten_cap, so_gio, ds) in enumerate(cap_ky, start=1)])
                 if kich_hoat:
                     qt = process.kich_hoat(qt, nguoi["admin"])
@@ -423,18 +423,6 @@ class Command(BaseCommand):
                     .update(han_xu_ly=qua_han)
 
         with transaction.atomic():
-            h = self._tao("M10", "Trưởng phòng nghỉ phép, Giám đốc được ủy quyền ký thay", n["vanthu"], song_song)
+            h = self._tao("M10", "hai người ký song song, một người đã ký, một người chờ ký", n["vanthu"], song_song)
             if h:
                 self._ky(h, n["admin"], "Đồng ý về mặt kỹ thuật")
-                dong = SigningRequestStepSigner.objects.get(buoc_ky__luot_trinh__trinh_ky=h, nguoi_ky=n["truongphong"],
-                                                            buoc_ky__thu_tu=1)
-                # Ánh xạ chỉ tồn tại trong giao dịch tạo ví dụ, không cấp quyền lâu dài cho chức danh thật.
-                mapping, moi = SigningDelegationRole.objects.get_or_create(
-                    chuc_vu_giao_id=dong.chuc_vu_id or n["truongphong"].chuc_vu_id,
-                    chuc_vu_nhan_id=n["giamdoc"].chuc_vu_id,
-                )
-                uy_quyen.uy_quyen(h, n["admin"], dong_nguoi_ky=dong.pk, nguoi_nhan=n["giamdoc"].pk,
-                                  ly_do="Trưởng phòng nghỉ phép đến hết tuần",
-                                  khoa_chong_trung=self._khoa("M10", "uy-quyen"))
-                if moi:
-                    mapping.delete()

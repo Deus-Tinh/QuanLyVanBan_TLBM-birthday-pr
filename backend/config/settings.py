@@ -258,6 +258,7 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "").strip()
 
 BRAND_NAME = os.getenv("BRAND_NAME", "Bảo Long Insurance").strip()
 ORGANIZATION_NAME = os.getenv("ORGANIZATION_NAME", BRAND_NAME).strip()
+BIRTHDAY_CARD_BASE_URL = os.getenv("BIRTHDAY_CARD_BASE_URL", "").strip()
 
 if email_host:
     MAILERS = {

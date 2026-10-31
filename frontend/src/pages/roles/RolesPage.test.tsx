@@ -222,6 +222,34 @@ describe('RolesPage (Issue #21)', () => {
     expect(await screen.findByText('Tạo nhóm quyền thành công!')).toBeInTheDocument();
   });
 
+  it('discards an edited role name when the form is cancelled and reopened', async () => {
+    mockApi();
+    renderPage();
+
+    await selectRole('Nhóm tự tạo');
+    fireEvent.click(await screen.findByRole('button', { name: /^Sửa$/ }));
+    fireEvent.change(screen.getByPlaceholderText('Nhập tên nhóm quyền...'), {
+      target: { value: 'Tên chưa lưu' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Hủy$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Sửa$/ }));
+
+    expect(screen.getByPlaceholderText('Nhập tên nhóm quyền...')).toHaveValue('Nhóm tự tạo');
+    expect(mockedApiClient.put).not.toHaveBeenCalled();
+  });
+
+  it('opens an empty form for a new role after an edit was cancelled', async () => {
+    mockApi();
+    renderPage();
+
+    await selectRole('Nhóm tự tạo');
+    fireEvent.click(await screen.findByRole('button', { name: /^Sửa$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Hủy$/ }));
+
+    fireEvent.click(await screen.findByRole('button', { name: /Thêm nhóm/ }));
+    expect(screen.getByPlaceholderText('Nhập tên nhóm quyền...')).toHaveValue('');
+  });
+
   it('does not allow renaming or deleting a standard role but still lets its permissions be edited', async () => {
     mockApi();
     renderPage();
