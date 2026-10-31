@@ -184,6 +184,52 @@ def can_create_document(user, loai="DEN"):
     return False
 
 
+def can_import_document(user, loai="DEN"):
+    """Kiểm tra quyền import văn bản (RBAC import_vanbanden, import_vanbandi)."""
+    if not user or not user.is_authenticated:
+        return False
+    if is_admin_user(user):
+        return True
+    model_name = "vanbandi" if str(loai).upper() in ("DI", "VANBANDI") else "vanbanden"
+    perm_code = f"import_{model_name}"
+
+    try:
+        if (
+            user.has_perm(f"documents.{perm_code}")
+            or user.has_perm(perm_code)
+        ):
+            return True
+        perms = getattr(user, "_user_permissions_cache", None) or set()
+        if any(perm_code in str(p) for p in perms):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def can_export_document(user, loai="DEN"):
+    """Kiểm tra quyền xuất Excel văn bản (RBAC export_vanbanden, export_vanbandi)."""
+    if not user or not user.is_authenticated:
+        return False
+    if is_admin_user(user):
+        return True
+    model_name = "vanbandi" if str(loai).upper() in ("DI", "VANBANDI") else "vanbanden"
+    perm_code = f"export_{model_name}"
+
+    try:
+        if (
+            user.has_perm(f"documents.{perm_code}")
+            or user.has_perm(perm_code)
+        ):
+            return True
+        perms = getattr(user, "_user_permissions_cache", None) or set()
+        if any(perm_code in str(p) for p in perms):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def can_change_hieu_luc(user, loai="DEN"):
     """
     Kiểm tra quyền thay đổi trạng thái hiệu lực của văn bản.
@@ -320,6 +366,17 @@ class DocumentViewSet(viewsets.ViewSet):
         raw_data = getattr(self.request, "data", None)
         data_loai = raw_data.get("loai") if (raw_data and hasattr(raw_data, "get")) else None
         loai = self.request.query_params.get("loai") or self.request.query_params.get("type") or data_loai
+
+        # Fallback suy luận loai từ referer nếu request không truyền kèm param
+        if not loai and hasattr(self.request, "headers"):
+            referer = (self.request.headers.get("referer") or "").lower()
+            if "van-ban-di" in referer or "outbound" in referer:
+                loai = "DI"
+            elif "van-ban-den" in referer or "inbound" in referer:
+                loai = "DEN"
+            elif "van-ban-mat" in referer or "confidential" in referer:
+                loai = "MAT"
+
         found_doc = None
         if loai:
             model = get_document_model(loai)
@@ -333,7 +390,8 @@ class DocumentViewSet(viewsets.ViewSet):
                     break
 
         if not found_doc:
-            for model in (VanBanDen, VanBanDi, VanBanMat):
+            order = (VanBanDi, VanBanDen, VanBanMat) if str(loai).upper() in ("DI", "VANBANDI") else (VanBanDen, VanBanDi, VanBanMat)
+            for model in order:
                 obj = model.objects.filter(pk=pk).first()
                 if obj:
                     found_doc = obj
@@ -674,7 +732,7 @@ class DocumentViewSet(viewsets.ViewSet):
         raw_pham_vi = request.data.get("pham_vi") or request.query_params.get("pham_vi")
         loai = str(raw_loai).strip().upper()
 
-        if not can_create_document(request.user, loai):
+        if not can_import_document(request.user, loai):
             raise PermissionDenied("Bạn không có quyền import tạo văn bản mới. Vui lòng liên hệ Quản trị viên.")
 
         if not file_obj:
@@ -719,6 +777,9 @@ class DocumentViewSet(viewsets.ViewSet):
         """GET /api/documents/export/?loai=DEN"""
         raw_loai = request.query_params.get("loai") or request.query_params.get("type", "DEN")
         loai = str(raw_loai).strip().upper()
+
+        if not can_export_document(request.user, loai):
+            raise PermissionDenied("Bạn không có quyền xuất danh sách văn bản. Vui lòng liên hệ Quản trị viên.")
 
         model = get_document_model(loai)
         qs = self._get_queryset_for_model(model)

@@ -6,6 +6,7 @@ import { Region, Unit, PaginatedResponse, RegionFormData, UnitFormData } from '@
 import { Button } from '@components/common/Button';
 import { Badge } from '@components/common/Badge';
 import { Select } from '@components/common/Select';
+import { RegionUnitSelect } from './components/RegionUnitSelect';
 import { RegionModal } from './components/RegionModal';
 import { UnitModal } from './components/UnitModal';
 import { DeleteConfirmModal } from './components/DeleteConfirmModal';
@@ -30,6 +31,8 @@ export default function OrganizationsPage() {
 
   // Bộ lọc & Tìm kiếm
   const [selectedRegionId, setSelectedRegionId] = useState<string>('');
+  const [selectedUnitId, setSelectedUnitId] = useState<string>('');
+  const [allUnits, setAllUnits] = useState<Unit[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [regionSearchQuery, setRegionSearchQuery] = useState<string>('');
 
@@ -79,6 +82,30 @@ export default function OrganizationsPage() {
     apiClient<Region[]>('/api/organizations/regions/?all=true')
       .then((data) => {
         if (!ignore) setDropdownRegions(data || []);
+      })
+      .catch(() => {});
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  // Toàn bộ Đơn vị (cấp 2): dropdown Khối hiện theo hover, dropdown Đơn vị lọc theo Khối đang chọn
+  const loadAllUnits = async () => {
+    try {
+      const data = await apiClient<Unit[]>('/api/organizations/units/?all=true');
+      const list = Array.isArray(data) ? data : [];
+      setAllUnits(list);
+      setSelectedUnitId((cur) => (list.some((u) => String(u.id) === cur) ? cur : ''));
+    } catch {
+      // Lỗi được xử lý ngầm
+    }
+  };
+
+  useEffect(() => {
+    let ignore = false;
+    apiClient<Unit[]>('/api/organizations/units/?all=true')
+      .then((data) => {
+        if (!ignore) setAllUnits(Array.isArray(data) ? data : []);
       })
       .catch(() => {});
     return () => {
@@ -176,6 +203,7 @@ export default function OrganizationsPage() {
       const res = await apiClient<PaginatedResponse<Unit>>(`/api/organizations/units/?${params.toString()}`);
       setUnits(res.results || []);
       setUnitsTotal(res.count || 0);
+      await loadAllUnits();
     } catch {
       showToast('organizations.messages.fetchError', true);
     } finally {
@@ -285,7 +313,18 @@ export default function OrganizationsPage() {
     }
   };
 
-  const totalPages = Math.ceil(unitsTotal / pageSize) || 1;
+  // Chọn đơn vị cấp 2 cụ thể thì bảng chỉ hiển thị đơn vị đó
+  const dropdownUnits = selectedRegionId ? allUnits.filter((u) => String(u.khoi) === selectedRegionId) : [];
+  const keyword = searchQuery.trim().toLowerCase();
+  const pickedUnit = selectedUnitId ? dropdownUnits.find((u) => String(u.id) === selectedUnitId) : undefined;
+  // Ô tìm kiếm vẫn có hiệu lực khi đã chọn đơn vị (cùng các trường với API: tên, điện thoại, email, địa chỉ)
+  const pickedMatches =
+    !!pickedUnit &&
+    (!keyword ||
+      [pickedUnit.ten, pickedUnit.dien_thoai, pickedUnit.email, pickedUnit.dia_chi].some((v) => (v ?? '').toLowerCase().includes(keyword)));
+  const shownUnits = pickedUnit ? (pickedMatches ? [pickedUnit] : []) : units;
+  const shownTotal = pickedUnit ? shownUnits.length : unitsTotal;
+  const totalPages = Math.ceil(shownTotal / pageSize) || 1;
 
   return (
     <div className="space-y-6">
@@ -396,25 +435,50 @@ export default function OrganizationsPage() {
       {activeTab === 'units' && (
         <div className="space-y-4">
           {/* Thanh công cụ lọc & tìm kiếm */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             {/* Lọc theo Khối */}
             <div>
-              <Select
-                value={selectedRegionId}
-                onChange={(val) => {
+              <RegionUnitSelect
+                regions={dropdownRegions}
+                units={allUnits}
+                regionId={selectedRegionId}
+                unitId={selectedUnitId}
+                placeholder={t('organizations.actions.filterRegionAll')}
+                allLabel={t('organizations.actions.filterRegionAll')}
+                unitsLabel={t('organizations.actions.filterUnitsOfRegion')}
+                onSelectRegion={(val) => {
                   setSelectedRegionId(val);
+                  setSelectedUnitId('');
                   setCurrentPage(1);
                 }}
-                placeholder={t('organizations.actions.filterRegionAll')}
-                leftIcon="fa-layer-group"
+                onSelectUnit={(regionVal, unitVal) => {
+                  setSelectedRegionId(regionVal);
+                  setSelectedUnitId(unitVal);
+                  setCurrentPage(1);
+                }}
+              />
+            </div>
+
+            {/* Lọc theo Đơn vị cấp 2, phụ thuộc Khối đã chọn */}
+            <div>
+              <Select
+                value={selectedUnitId}
+                onChange={(val) => {
+                  setSelectedUnitId(val);
+                  setCurrentPage(1);
+                }}
+                placeholder={
+                  selectedRegionId
+                    ? t('organizations.actions.filterUnitAll')
+                    : t('organizations.actions.filterUnitSelectRegionFirst')
+                }
+                leftIcon="fa-building"
                 clearable
-                searchable={dropdownRegions.length > 7}
+                disabled={!selectedRegionId}
+                searchable={dropdownUnits.length > 7}
                 options={[
-                  { value: '', label: t('organizations.actions.filterRegionAll') },
-                  ...dropdownRegions.map((reg) => ({
-                    value: String(reg.id),
-                    label: reg.ten,
-                  })),
+                  { value: '', label: t('organizations.actions.filterUnitAll') },
+                  ...dropdownUnits.map((u) => ({ value: String(u.id), label: u.ten })),
                 ]}
               />
             </div>
@@ -460,7 +524,7 @@ export default function OrganizationsPage() {
                         {t('organizations.table.loading')}
                       </td>
                     </tr>
-                  ) : units.length === 0 ? (
+                  ) : shownUnits.length === 0 ? (
                     <tr>
                       <td colSpan={showRowActions ? 7 : 6} className="text-center py-12 text-secondary">
                         <i className="fa-solid fa-folder-open text-3xl text-muted mb-2 block" />
@@ -468,7 +532,7 @@ export default function OrganizationsPage() {
                       </td>
                     </tr>
                   ) : (
-                    units.map((unit) => {
+                    shownUnits.map((unit) => {
                       // Quy tắc spec: nếu is_public = false -> đổi màu hiển thị cho admin
                       const isInternal = !unit.is_public;
                       return (
@@ -552,8 +616,8 @@ export default function OrganizationsPage() {
                 <span className="text-secondary text-xs">
                   {t('organizations.table.paginationInfo', {
                     from: String((currentPage - 1) * pageSize + 1),
-                    to: String(Math.min(currentPage * pageSize, unitsTotal)),
-                    total: String(unitsTotal),
+                    to: String(Math.min(currentPage * pageSize, shownTotal)),
+                    total: String(shownTotal),
                   })}
                 </span>
                 <div className="flex items-center gap-1">
