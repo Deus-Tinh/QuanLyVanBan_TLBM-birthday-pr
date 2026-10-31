@@ -605,26 +605,28 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({
                 </div>
                 {isPasswordFormOpen && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <label className="block text-sm font-medium text-secondary md:col-span-2">
-                      {t('employees.passwordChange.reason')}
-                      <select
-                        required
+                    <div className="md:col-span-2">
+                      <Select
+                        label={t('employees.passwordChange.reason')}
+                        name="password-reset-reason"
                         value={passwordResetReason}
-                        onChange={(event) => {
-                          const reason = event.target.value;
+                        required
+                        onChange={(reason) => {
                           setPasswordResetReason(reason);
                           if (reason !== 'OTHER') setPasswordResetReasonDetail('');
                           setPasswordError(null);
                         }}
-                        className="mt-1 w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                      >
-                        <option value="">{t('employees.passwordChange.reasonPlaceholder')}</option>
-                        <option value="FORGOT_PASSWORD">{t('employees.passwordChange.reasonForgotPassword')}</option>
-                        <option value="COMPROMISED">{t('employees.passwordChange.reasonCompromised')}</option>
-                        <option value="LOST_ACCESS">{t('employees.passwordChange.reasonLostAccess')}</option>
-                        <option value="OTHER">{t('employees.passwordChange.reasonOther')}</option>
-                      </select>
-                    </label>
+                        placeholder={t('employees.passwordChange.reasonPlaceholder')}
+                        ariaLabel={t('employees.passwordChange.reason')}
+                        searchable={false}
+                        options={[
+                          { value: 'FORGOT_PASSWORD', label: t('employees.passwordChange.reasonForgotPassword') },
+                          { value: 'COMPROMISED', label: t('employees.passwordChange.reasonCompromised') },
+                          { value: 'LOST_ACCESS', label: t('employees.passwordChange.reasonLostAccess') },
+                          { value: 'OTHER', label: t('employees.passwordChange.reasonOther') },
+                        ]}
+                      />
+                    </div>
                     {passwordResetReason === 'OTHER' && (
                       <label className="block text-sm font-medium text-secondary md:col-span-2">
                         {t('employees.passwordChange.reasonDetail')}
