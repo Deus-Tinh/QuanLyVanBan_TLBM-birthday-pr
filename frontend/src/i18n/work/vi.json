@@ -42,7 +42,13 @@
       "task": "công việc"
     },
     "dateInput": {
-      "weekdays": ["T2", "T3", "T4", "T5", "T6", "T7", "CN"],
+      "weekdayMo": "T2",
+      "weekdayTu": "T3",
+      "weekdayWe": "T4",
+      "weekdayTh": "T5",
+      "weekdayFr": "T6",
+      "weekdaySa": "T7",
+      "weekdaySu": "CN",
       "placeholder": "dd/mm/yyyy",
       "ariaLabel": "Ngày theo định dạng ngày/tháng/năm",
       "openCalendar": "Mở lịch chọn ngày",

@@ -42,7 +42,13 @@
       "task": "task"
     },
     "dateInput": {
-      "weekdays": ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+      "weekdayMo": "Mo",
+      "weekdayTu": "Tu",
+      "weekdayWe": "We",
+      "weekdayTh": "Th",
+      "weekdayFr": "Fr",
+      "weekdaySa": "Sa",
+      "weekdaySu": "Su",
       "placeholder": "dd/mm/yyyy",
       "ariaLabel": "Date in day/month/year format",
       "openCalendar": "Open date picker",

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from '@i18n/translate';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { TASK_STATUS_LABELS, TaskFilters, TaskStatus } from '../types/task';
 import DateInput, { isoToDisplay } from './DateInput';
@@ -43,6 +44,7 @@ const inputStyle: React.CSSProperties = {
 };
 
 export default function TaskFilterBar({ value, busy = false, onSearch, onCreate }: TaskFilterBarProps) {
+  const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [draft, setDraft] = useState<FilterDraft>(value);
   const [error, setError] = useState('');
@@ -52,7 +54,7 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
   const submit = () => {
     if (draft.createdFrom && draft.createdTo && draft.createdFrom > draft.createdTo) {
       setError(
-        `"Từ ngày tạo" (${isoToDisplay(draft.createdFrom)}) đang sau "Đến ngày tạo" (${isoToDisplay(draft.createdTo)}). Hãy chọn lại khoảng ngày.`,
+        t('work.filter.dateRangeError', { from: isoToDisplay(draft.createdFrom), to: isoToDisplay(draft.createdTo) }),
       );
       return;
     }
@@ -93,7 +95,7 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
       >
         <div>
           <label htmlFor="work-filter-status" style={fieldLabelStyle}>
-            Tình trạng
+            {t('work.filter.status')}
           </label>
           <select
             id="work-filter-status"
@@ -101,32 +103,32 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
             onChange={(event) => setDraft({ ...draft, status: event.target.value as TaskStatus | '' })}
             style={inputStyle}
           >
-            <option value="">Tất cả</option>
-            {STATUS_OPTIONS.map(([status, label]) => (
+            <option value="">{t('work.filter.all')}</option>
+            {STATUS_OPTIONS.map(([status]) => (
               <option key={status} value={status}>
-                {label}
+                {t(`work.status.${status}`)}
               </option>
             ))}
           </select>
         </div>
 
         <div>
-          <span style={fieldLabelStyle}>Từ ngày tạo</span>
+          <span style={fieldLabelStyle}>{t('work.filter.createdFrom')}</span>
           <DateInput
             value={draft.createdFrom}
             onChange={(createdFrom) => setDraft({ ...draft, createdFrom })}
             max={draft.createdTo || undefined}
-            ariaLabel="Từ ngày tạo"
+            ariaLabel={t('work.filter.createdFrom')}
           />
         </div>
 
         <div>
-          <span style={fieldLabelStyle}>Đến ngày tạo</span>
+          <span style={fieldLabelStyle}>{t('work.filter.createdTo')}</span>
           <DateInput
             value={draft.createdTo}
             onChange={(createdTo) => setDraft({ ...draft, createdTo })}
             min={draft.createdFrom || undefined}
-            ariaLabel="Đến ngày tạo"
+            ariaLabel={t('work.filter.createdTo')}
           />
         </div>
       </div>
@@ -165,7 +167,7 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
           }}
         >
           <i className="fa-solid fa-plus" />
-          Thêm công việc mới
+          {t('work.filter.addTask')}
         </button>
 
         <div
@@ -182,8 +184,8 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
             id="work-filter-search"
             type="search"
             value={draft.search}
-            placeholder="Nhập từ khóa trong nội dung công việc"
-            aria-label="Nội dung công việc"
+            placeholder={t('work.filter.searchPlaceholder')}
+            aria-label={t('work.filter.searchAriaLabel')}
             onChange={(event) => setDraft({ ...draft, search: event.target.value })}
             onKeyDown={(event) => {
               if (event.key === 'Enter') submit();
@@ -206,7 +208,7 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
                 cursor: busy ? 'not-allowed' : 'pointer',
               }}
             >
-              Xóa bộ lọc
+              {t('work.filter.clearFilters')}
             </button>
           )}
           <button
@@ -228,7 +230,7 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
             }}
           >
             <i className="fa-solid fa-magnifying-glass" />
-            Tìm kiếm
+            {t('work.filter.search')}
           </button>
         </div>
       </div>
