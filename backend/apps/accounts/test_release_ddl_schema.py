@@ -81,7 +81,7 @@ class ReleaseDdlSchemaTests(TestCase):
                 "WHERE c.conrelid = 'accounts_password_reset_audit'::regclass AND c.contype = 'f'"
             )
             foreign_keys = {column: (delete_action, deferrable, deferred) for column, delete_action, deferrable, deferred in cursor.fetchall()}
-        self.assertEqual(foreign_keys, {"actor_id": ("n", True, True), "target_id": ("n", True, True)})
+        self.assertEqual(foreign_keys, {"actor_id": ("a", True, True), "target_id": ("a", True, True)})
         self.assertTrue(
             {
                 "idx_pwd_reset_target_time",

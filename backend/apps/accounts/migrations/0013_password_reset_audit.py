@@ -24,55 +24,6 @@ def drop_password_reset_audit_if_exists(apps, schema_editor):
         schema_editor.delete_model(EmployeePasswordResetAudit)
 
 
-def set_null_password_reset_foreign_keys(apps, schema_editor):
-    if schema_editor.connection.vendor != "postgresql":
-        return
-
-    table = "accounts_password_reset_audit"
-    with schema_editor.connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT c.conname, "
-            "ARRAY(SELECT a.attname::text FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord) "
-            "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum ORDER BY k.ord), "
-            "pg_get_constraintdef(c.oid), c.confrelid::regclass::text, "
-            "c.condeferrable, c.condeferred, "
-            "ARRAY(SELECT a.attname::text FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord) "
-            "JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum ORDER BY k.ord) "
-            "FROM pg_constraint c WHERE c.conrelid = %s::regclass AND c.contype = 'f'",
-            [table],
-        )
-        foreign_keys = [
-            (name, columns or [], definition, referenced_table, deferrable, deferred, referenced_columns or [])
-            for name, columns, definition, referenced_table, deferrable, deferred, referenced_columns in cursor.fetchall()
-        ]
-
-        quoted_table = schema_editor.quote_name(table)
-        for column in ("actor_id", "target_id"):
-            matches = [row for row in foreign_keys if row[1] == [column]]
-            if len(matches) > 1:
-                raise RuntimeError(f"Multiple foreign keys found for {table}.{column}.")
-            if matches:
-                name, columns, definition, referenced_table, deferrable, deferred, referenced_columns = matches[0]
-                if (
-                    referenced_table.split(".")[-1].strip('"') != "accounts_employee"
-                    or referenced_columns != ["id"]
-                ):
-                    raise RuntimeError(f"Unexpected foreign key found for {table}.{column}.")
-                if "ON DELETE SET NULL" in definition and deferrable and deferred:
-                    continue
-                cursor.execute(
-                    f"ALTER TABLE {quoted_table} DROP CONSTRAINT {schema_editor.quote_name(name)}"
-                )
-
-            cursor.execute(
-                f"ALTER TABLE {quoted_table} ADD CONSTRAINT "
-                f"{schema_editor.quote_name(f'{table}_{column}_fkey')} "
-                f"FOREIGN KEY ({schema_editor.quote_name(column)}) "
-                f"REFERENCES {schema_editor.quote_name('accounts_employee')} "
-                f"({schema_editor.quote_name('id')}) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED"
-            )
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("accounts", "0012_cbnv_import_job"),
@@ -191,9 +142,5 @@ class Migration(migrations.Migration):
                     },
                 ),
             ],
-        ),
-        migrations.RunPython(
-            set_null_password_reset_foreign_keys,
-            migrations.RunPython.noop,
         ),
     ]

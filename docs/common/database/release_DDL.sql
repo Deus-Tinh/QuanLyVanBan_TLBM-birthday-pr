@@ -473,8 +473,8 @@ CREATE INDEX idx_employee_import_status ON accounts_employee_import_job (status,
 -- Nhật ký đặt lại mật khẩu CBNV do quản trị viên thực hiện; không lưu mật khẩu/hash.
 CREATE TABLE accounts_password_reset_audit (
     id BIGSERIAL PRIMARY KEY,
-    actor_id BIGINT REFERENCES accounts_employee (id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,
-    target_id BIGINT REFERENCES accounts_employee (id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,
+    actor_id BIGINT REFERENCES accounts_employee (id),
+    target_id BIGINT REFERENCES accounts_employee (id),
     actor_username VARCHAR(150) NOT NULL,
     target_username VARCHAR(150) NOT NULL,
     reason_code VARCHAR(32) NOT NULL,
