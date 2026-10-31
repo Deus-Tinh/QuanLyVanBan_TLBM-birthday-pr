@@ -326,12 +326,27 @@ export const OutboundDocumentPage: React.FC = () => {
         }
       });
 
-      // Gộp danh mục hồ sơ: kết hợp hồ sơ từ Nhóm 3 (app records) và hồ sơ thực tế trong văn bản
-      const combinedFoldersSet = new Set<string>([...recordsFolders, ...extractedFolders]);
+      // Gộp danh mục hồ sơ: giữ nguyên thứ tự chuẩn theo ID / mức ưu tiên của Nhóm 3 (Hồ sơ chung lên đầu)
+      // Bất kỳ hồ sơ nào do người dùng nhập tay ngoài danh mục của Nhóm 3 sẽ được nối tiếp phía sau
+      const extraFolders = Array.from(extractedFolders).filter(
+        (f) => !recordsFolders.some((rf) => rf.trim().toLowerCase() === f.trim().toLowerCase())
+      ).sort((a, b) => a.localeCompare(b, 'vi'));
+
+      const combinedOrderedFolders = [...recordsFolders, ...extraFolders];
+
+      // Đảm bảo "Hồ sơ chung" (nếu có) luôn luôn đứng vị trí đầu tiên
+      const hscIndex = combinedOrderedFolders.findIndex(
+        (f) => f.trim().toLowerCase() === 'hồ sơ chung'
+      );
+      if (hscIndex > 0) {
+        const [hsc] = combinedOrderedFolders.splice(hscIndex, 1);
+        combinedOrderedFolders.unshift(hsc);
+      }
+
       const serializableFolderMap: Record<string, string[]> = {};
 
       // Xây dựng bản đồ ánh xạ Hồ sơ -> Loại văn bản kết hợp
-      combinedFoldersSet.forEach((folder) => {
+      combinedOrderedFolders.forEach((folder) => {
         const fromRecords = recordsFolderTypeMap[folder] ? Array.from(recordsFolderTypeMap[folder]) : [];
         const fromDocuments = folderTypeMapping[folder] ? Array.from(folderTypeMapping[folder]) : [];
         const combinedTypes = Array.from(new Set([...fromRecords, ...fromDocuments])).sort((a, b) => a.localeCompare(b, 'vi'));
@@ -340,7 +355,7 @@ export const OutboundDocumentPage: React.FC = () => {
         }
       });
 
-      // Nếu có hồ sơ trong folderTypeMapping chưa có trong combinedFoldersSet
+      // Nếu có hồ sơ trong folderTypeMapping chưa có trong combinedOrderedFolders
       Object.entries(folderTypeMapping).forEach(([folder, typeSet]) => {
         if (!serializableFolderMap[folder]) {
           serializableFolderMap[folder] = Array.from(typeSet).sort((a, b) => a.localeCompare(b, 'vi'));
@@ -348,7 +363,7 @@ export const OutboundDocumentPage: React.FC = () => {
       });
 
       setAvailableDocTypes(Array.from(extractedTypes).sort((a, b) => a.localeCompare(b, 'vi')));
-      setAvailableFolders(Array.from(combinedFoldersSet).sort((a, b) => a.localeCompare(b, 'vi')));
+      setAvailableFolders(combinedOrderedFolders);
       setFolderDocTypesMap(serializableFolderMap);
     } catch {
       // Giữ nguyên trạng thái hiện tại nếu lỗi
