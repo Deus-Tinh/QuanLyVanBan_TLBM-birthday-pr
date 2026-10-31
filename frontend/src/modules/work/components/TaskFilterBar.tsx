@@ -33,6 +33,8 @@ const fieldLabelStyle: React.CSSProperties = {
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
+  maxWidth: '100%',
+  boxSizing: 'border-box',
   padding: '9px 12px',
   borderRadius: 'var(--radius-md)',
   border: '1px solid var(--border-subtle)',
@@ -173,9 +175,10 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
         <div
           style={{
             display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
             gap: '8px',
             flexWrap: 'wrap',
-            alignItems: 'center',
+            alignItems: isMobile ? 'stretch' : 'center',
             flex: isMobile ? '1 1 auto' : '1 1 320px',
             justifyContent: isMobile ? 'stretch' : 'flex-end',
           }}
@@ -190,7 +193,7 @@ export default function TaskFilterBar({ value, busy = false, onSearch, onCreate 
             onKeyDown={(event) => {
               if (event.key === 'Enter') submit();
             }}
-            style={{ ...inputStyle, flex: '1 1 220px', width: 'auto', maxWidth: isMobile ? '100%' : '360px' }}
+            style={{ ...inputStyle, flex: isMobile ? '1 1 auto' : '1 1 220px', width: isMobile ? '100%' : 'auto', maxWidth: isMobile ? '100%' : '360px' }}
           />
           {hasFilter && (
             <button
