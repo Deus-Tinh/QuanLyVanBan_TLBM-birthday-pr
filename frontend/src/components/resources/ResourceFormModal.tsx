@@ -268,7 +268,11 @@ export const ResourceFormModal: React.FC<ResourceFormModalProps> = ({
             noi_ban_hanh: initialData.noi_ban_hanh || '',
             nguoi_tao_name: initialData.nguoi_tao_name || defaultAuthor,
             hieu_luc: initialData.hieu_luc || 'CON_HIEU_LUC',
-            ngay_het_hieu_luc: initialData.ngay_het_hieu_luc || '',
+            ngay_het_hieu_luc:
+              initialData.ngay_het_hieu_luc ||
+              (initialData.hieu_luc === 'HET_HIEU_LUC' || initialData.hieu_luc === 'HET_VA_THAY_THE'
+                ? getTodayLocalDateString()
+                : ''),
             link_thay_the: initialData.link_thay_the || '',
             ghi_chu: initialData.ghi_chu || '',
             hien_thi: initialData.hien_thi || 'TAT_CA',
@@ -723,7 +727,10 @@ export const ResourceFormModal: React.FC<ResourceFormModalProps> = ({
     data.append('ghi_chu', formData.ghi_chu.trim());
 
     const isReplaced = formData.hieu_luc === 'HET_VA_THAY_THE';
-    const effectiveExpDate = formData.ngay_het_hieu_luc || '';
+    const isExpiredStatus = formData.hieu_luc === 'HET_HIEU_LUC' || isReplaced;
+    const effectiveExpDate = (isExpiredStatus && !formData.ngay_het_hieu_luc)
+      ? getTodayLocalDateString()
+      : (formData.ngay_het_hieu_luc || '');
     const effectiveReplLink = isReplaced ? (formData.link_thay_the?.trim() || '') : '';
 
     data.append('ngay_het_hieu_luc', effectiveExpDate);
@@ -1159,6 +1166,10 @@ export const ResourceFormModal: React.FC<ResourceFormModalProps> = ({
                           setFormData((prev) => ({
                             ...prev,
                             hieu_luc: st.value as HieuLucType,
+                            ngay_het_hieu_luc:
+                              (st.value === 'HET_HIEU_LUC' || st.value === 'HET_VA_THAY_THE') && !prev.ngay_het_hieu_luc
+                                ? getTodayLocalDateString()
+                                : prev.ngay_het_hieu_luc,
                             link_thay_the: st.value === 'HET_VA_THAY_THE' ? prev.link_thay_the : '',
                           }));
                         }}
