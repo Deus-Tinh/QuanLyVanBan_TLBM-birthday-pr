@@ -365,7 +365,12 @@
     "gioiHanThuBacTruoc": "The level's effective rank must be higher than or equal to “{ten}” at the preceding position-based level.",
     "gioiHanThuBacSau": "The level's effective rank must not be higher than “{ten}” at the following position-based level.",
     "gioiHanThuBacHaiPhia": "The level's effective rank must be higher than or equal to “{truoc}” before it and not higher than “{sau}” after it.",
-    "gioiHanThuBacKhongCoLuaChon": "No position satisfies the ranks of the adjacent levels. Adjust the position-based signers on those levels."
+    "gioiHanThuBacKhongCoLuaChon": "No position satisfies the ranks of the adjacent levels. Adjust the position-based signers on those levels.",
+    "nhapToiThieu": "Type at least {so} characters to search for a signer.",
+    "nhapThemThuHep": "Type more to narrow the results.",
+    "xemThem": "Show more (+{so})",
+    "thuGon": "Show less",
+    "nguoiKyDaChon": "Selected signers"
   },
   "khoa": {
     "gioiThieu": "Your signing key is created in this browser and protected by an 8-digit PIN. The key file is downloaded only once upon key creation or PIN change. The server never receives your PIN or key file.",

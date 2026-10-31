@@ -365,7 +365,12 @@
     "gioiHanThuBacTruoc": "Thứ bậc hiệu lực của cấp phải cao hơn hoặc bằng “{ten}” ở cấp có chức danh liền trước.",
     "gioiHanThuBacSau": "Thứ bậc hiệu lực của cấp không được cao hơn “{ten}” ở cấp có chức danh liền sau.",
     "gioiHanThuBacHaiPhia": "Thứ bậc hiệu lực của cấp phải cao hơn hoặc bằng “{truoc}” ở cấp trước và không cao hơn “{sau}” ở cấp sau.",
-    "gioiHanThuBacKhongCoLuaChon": "Không có chức danh nào phù hợp với thứ bậc của hai cấp liền kề. Hãy điều chỉnh người ký theo chức danh ở các cấp."
+    "gioiHanThuBacKhongCoLuaChon": "Không có chức danh nào phù hợp với thứ bậc của hai cấp liền kề. Hãy điều chỉnh người ký theo chức danh ở các cấp.",
+    "nhapToiThieu": "Nhập tối thiểu {so} ký tự để tìm người ký.",
+    "nhapThemThuHep": "Nhập thêm để thu hẹp kết quả.",
+    "xemThem": "Xem thêm (+{so})",
+    "thuGon": "Thu gọn",
+    "nguoiKyDaChon": "Người ký đã chọn"
   },
   "khoa": {
     "gioiThieu": "Khóa ký được tạo trên trình duyệt và bảo vệ bằng PIN 8 chữ số. Tệp khóa chỉ được tải về thiết bị 1 lần duy nhất khi tạo khóa hoặc đổi PIN. Máy chủ không nhận PIN hoặc tệp khóa.",
