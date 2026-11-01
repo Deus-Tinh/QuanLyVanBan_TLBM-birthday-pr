@@ -604,6 +604,10 @@ def _validate_send_mail_permission(attrs, instance=None, request=None, loai="DEN
     """
     pham_vi = attrs.get("pham_vi") or (getattr(instance, "pham_vi", None) if instance else PhamVi.NOI_BO)
     if pham_vi == PhamVi.HAN_CHE or str(loai).upper() in ("MAT", "VANBANMAT"):
+        if attrs.get("gui_mail_toan_he_thong"):
+            raise serializers.ValidationError(
+                {"gui_mail_toan_he_thong": "Văn bản hạn chế / mật không được phép bật gửi mail toàn hệ thống."}
+            )
         attrs["gui_mail_toan_he_thong"] = False
         return
 
