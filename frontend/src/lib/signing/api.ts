@@ -97,7 +97,7 @@ export const signingApi = {
     apiClient.post<HoSoChiTiet>(`${SIGNING_BASE}/trinh-ky/${id}/trinh-lai/`, {}, tieuDe(khoa)),
 
   // ── Hành động người ký ───────────────────────────────────────────────────
-  ky: (id: number, khoa: string, body: { khoa_ky: number; hash_tai_lieu: string; chu_ky_so: string; ghi_chu_ky: string }) =>
+  ky: (id: number, khoa: string, body: { khoa_ky: number; hash_tai_lieu: string; chu_ky_so: string; ghi_chu_ky: string; anh_chu_ky?: string }) =>
     apiClient.post<HoSoChiTiet>(`${SIGNING_BASE}/trinh-ky/${id}/ky/`, body, tieuDe(khoa)),
   tuChoi: (id: number, khoa: string, ly_do_tu_choi: string) =>
     apiClient.post<HoSoChiTiet>(`${SIGNING_BASE}/trinh-ky/${id}/tu-choi/`, { ly_do_tu_choi }, tieuDe(khoa)),
@@ -142,6 +142,9 @@ export const signingApi = {
    * phạm vi khác (không phải toàn bộ CBNV), tự chuyển sang khi thiếu quyền sẽ hiện một danh sách ngắn hơn mà
    * người dùng tưởng là toàn bộ cán bộ nhân viên. Lỗi 403 được báo thật để người dùng biết cần cấp quyền.
    */
+  /** Id tài khoản đang hoạt động có quyền ký (`sign_trinhky`); cần quyền quản lý quy trình. */
+  nguoiKyCoQuyen: () => apiClient.get<{ ids: number[] }>('/api/v1/signing/nguoi-ky-co-quyen/').then((r) => r.ids),
+
   danhBaCanBo: () =>
     apiClient
       .get<CanBo[] | { results?: CanBo[] }>('/api/accounts/employees/?all=true')

@@ -26,7 +26,7 @@ from .models import (
     SigningUserSignature,
 )
 from .permissions import (
-    GUI_TRINH_KY, HUY_TRINH_KY, KY_TRINH_KY, QUAN_LY_QUY_TRINH, TAO_TRINH_KY, XEM_NHAT_KY,
+    GUI_TRINH_KY, HUY_TRINH_KY, KY_TRINH_KY, QUAN_LY_QUY_TRINH, TAO_TRINH_KY, XEM_NHAT_KY, XEM_TAT_CA,
     XEM_TRINH_KY, co_quyen, yeu_cau_quyen,
 )
 from .serializers import (
@@ -251,7 +251,7 @@ class KhoaPinView(SigningAPIView):
 
 
 # ── Hồ sơ trình ký (Phase 7, #80; plan mục 3.3, 6.1, 7.2) ────────────────────
-# Xem: người tạo, người ký của hồ sơ, kiểm toán (view_signing_audit). Tạo: add_trinhky.
+# Xem: người tạo, người ký của hồ sơ, kiểm toán (view_signing_audit), xem tất cả (view_all_trinhky; chỉ xem). Tạo: add_trinhky.
 # Gửi, trình lại: send_trinhky + là người tạo. Hủy: người tạo, hoặc cancel_trinhky (bắt buộc lý do).
 # Thao tác đổi trạng thái bắt buộc header Idempotency-Key (plan mục 7.5).
 
@@ -859,6 +859,18 @@ class NguoiDungView(SigningAPIView):
         return Response(ket_qua)
 
 
+class NguoiKyCoQuyenView(SigningAPIView):
+    """
+    GET /nguoi-ky-co-quyen/: id tài khoản đang hoạt động có quyền ký (`sign_trinhky`) để form cấu hình quy trình
+    vô hiệu người không ký được; cần quyền quản lý quy trình. Backend vẫn chặn lúc gửi hồ sơ (`nguoi_ky_thieu_quyen_ky`).
+    """
+
+    def get(self, request):
+        yeu_cau_quyen(request.user, QUAN_LY_QUY_TRINH)
+        users = get_user_model().objects.filter(is_active=True).order_by("pk")
+        return Response({"ids": [u.pk for u in users.iterator(chunk_size=500) if co_quyen(u, KY_TRINH_KY)]})
+
+
 class CanBoTheoChucVuView(SigningAPIView):
     """
     GET /can-bo-theo-chuc-vu/?chuc_vu=<id>[&don_vi=<id>]: cán bộ đang làm việc giữ chức vụ (trong đơn vị nếu có) để
@@ -905,7 +917,7 @@ class ToiView(SigningAPIView):
         return Response({
             "id": u.pk, "ten": to_chuc.ten_hien_thi(u), "don_vi_id": don_vi,
             "quyen": {ma: co_quyen(u, ma) for ma in (XEM_TRINH_KY, TAO_TRINH_KY, GUI_TRINH_KY, KY_TRINH_KY,
-                                                     HUY_TRINH_KY, XEM_NHAT_KY, QUAN_LY_QUY_TRINH)},
+                                                     HUY_TRINH_KY, XEM_NHAT_KY, XEM_TAT_CA, QUAN_LY_QUY_TRINH)},
             "la_quan_tri": to_chuc.la_quan_tri(u), "la_lanh_dao_don_vi": to_chuc.la_lanh_dao_don_vi(u, don_vi),
             "co_anh_chu_ky": SigningUserSignature.objects.filter(nguoi_dung=u).exists(),
         })

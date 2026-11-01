@@ -1,4 +1,12 @@
 -- =====================================================================
+-- THAY ĐỔI QUYỀN XEM TẤT CẢ HỒ SƠ TRÌNH KÝ (Nhóm 5; đánh dấu [XTKY] tại vị trí)
+-- Căn cứ: yêu cầu nghiệp vụ: Văn thư xem toàn bộ hồ sơ trình ký như Ban Giám đốc và Quản trị hệ thống,
+--   không mở nhật ký kiểm toán (view_signing_audit).
+--   Thêm quyền view_all_trinhky (nhóm Trình ký); gán cho nhóm ADMIN (CROSS JOIN sẵn có), BGD và VT: thêm 3 lượt phân quyền.
+--   Migration authorization 0013_add_view_all_trinhky_permission bổ sung cho DB đã seed từ trước.
+-- Quy mô sau [XTKY] (cộng sau [EXDV]): 80 -> 81 quyền thao tác; 211 -> 214 lượt phân quyền.
+-- =====================================================================
+-- =====================================================================
 -- THAY ĐỔI CẤP QUYỀN XUẤT DANH BẠ PHÒNG BAN CHO TRƯỞNG PHÒNG VÀ BAN GIÁM ĐỐC (Nhóm 7; đánh dấu [EXDV] tại vị trí)
 -- Căn cứ: quyết định nhóm trưởng (30/10/2026): xuất danh bạ do admin, Tổng giám đốc và các chức vụ cao cấp thực hiện,
 --   cùng mức với export_cbnv (TP, BGD, ADMIN).
@@ -461,6 +469,29 @@ CREATE TABLE accounts_employee_import_job (
 );
 
 CREATE INDEX idx_employee_import_status ON accounts_employee_import_job (status, created_at);
+
+-- Nhật ký đặt lại mật khẩu CBNV do quản trị viên thực hiện; không lưu mật khẩu/hash.
+CREATE TABLE accounts_password_reset_audit (
+    id BIGSERIAL PRIMARY KEY,
+    actor_id BIGINT REFERENCES accounts_employee (id),
+    target_id BIGINT REFERENCES accounts_employee (id),
+    actor_username VARCHAR(150) NOT NULL,
+    target_username VARCHAR(150) NOT NULL,
+    reason_code VARCHAR(32) NOT NULL,
+    reason_detail VARCHAR(500),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_pwd_reset_reason_code
+        CHECK (reason_code IN ('FORGOT_PASSWORD', 'COMPROMISED', 'LOST_ACCESS', 'OTHER')),
+    CONSTRAINT chk_pwd_reset_reason_detail
+        CHECK (
+            (reason_code = 'OTHER' AND reason_detail IS NOT NULL)
+            OR (reason_code <> 'OTHER' AND reason_detail IS NULL)
+        )
+);
+
+CREATE INDEX idx_pwd_reset_target_time ON accounts_password_reset_audit (target_id, created_at);
+
+CREATE INDEX idx_pwd_reset_actor_time ON accounts_password_reset_audit (actor_id, created_at);
 
 -- Ghi chú: spec mới (tab "Đvị, phòngban") không có trường "Trưởng đơn vị"
 -- trên organizations_donvi -> không tạo cột manager_id.
@@ -2513,6 +2544,11 @@ VALUES
         'view_signing_audit',
         'Trình ký'
     ),
+    (
+        'Xem tất cả hồ sơ trình ký',
+        'view_all_trinhky',
+        'Trình ký'
+    ),
     -- Quản lý Công việc (Nhóm 6)
     (
         'Xem công việc (chung)',
@@ -2675,6 +2711,7 @@ WHERE
         'delegate_trinhky',
         'cancel_trinhky',
         'view_signing_audit',
+        'view_all_trinhky',
         'view_congviec',
         'view_all_congviec',
         'view_dept_congviec',
@@ -2799,6 +2836,7 @@ WHERE
         'view_trinhky',
         'send_trinhky',
         'add_trinhky',
+        'view_all_trinhky',
         'view_congviec',
         'view_dept_congviec',
         'add_congviec',

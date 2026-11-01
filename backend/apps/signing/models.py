@@ -550,7 +550,9 @@ class SigningUserSignature(models.Model):
     Mỗi người dùng có một ảnh chữ ký hiện hành.
     """
 
-    nguoi_dung = models.OneToOneField(User, on_delete=models.CASCADE, related_name="anh_chu_ky_ca_nhan")
+    nguoi_dung = models.OneToOneField(
+        User, on_delete=models.CASCADE, db_constraint=False, related_name="anh_chu_ky_ca_nhan"
+    )  # FK ON DELETE CASCADE tạo bằng SQL trong migration 0019 để khớp release_DDL.sql
     vi_tri_tep = models.CharField(max_length=500)
     ma_bam = models.CharField(max_length=64)
     dung_luong_bytes = models.IntegerField()

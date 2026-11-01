@@ -8,6 +8,12 @@ def install_updated_at_trigger(apps, schema_editor):
     if connection.vendor != "postgresql":
         return
     with connection.cursor() as cursor:
+        # release_DDL.sql khai báo FK nguoi_dung_id với ON DELETE CASCADE ở tầng DB;
+        # Django chỉ tạo FK không có hành động xóa nên field dùng db_constraint=False và FK tạo ở đây.
+        cursor.execute(
+            "ALTER TABLE signing_user_signature ADD CONSTRAINT signing_user_signature_nguoi_dung_id_fkey "
+            "FOREIGN KEY (nguoi_dung_id) REFERENCES accounts_employee (id) ON DELETE CASCADE"
+        )
         cursor.execute(
             "SELECT 1 FROM pg_trigger WHERE tgname = 'trg_signing_user_signature_updated_at'"
         )
@@ -61,6 +67,7 @@ class Migration(migrations.Migration):
                 (
                     "nguoi_dung",
                     models.OneToOneField(
+                        db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="anh_chu_ky_ca_nhan",
                         to=settings.AUTH_USER_MODEL,

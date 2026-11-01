@@ -1,11 +1,10 @@
 """
 Hành động người ký — Phase 8 (#80; plan mục 3.2, 3.4 "Chữ ký", 5.3, 6.2).
 
-- ky: ký Ed25519 trên raw bytes của SHA-256 tệp đã khóa ở lượt trình; mở ký chính khi ký nháy chặn đã
-  ký đủ, đóng cấp khi mọi người ký trong cấp đã ký, mở cấp sau hoặc hoàn thành lượt trình và hồ sơ.
+- ky: ký Ed25519 trên raw bytes của SHA-256 tệp đã khóa ở lượt trình; đóng cấp khi mọi người ký trong cấp
+  đã ký, mở cấp sau hoặc hoàn thành lượt trình và hồ sơ.
 - tu_choi: "không đồng ý ban hành", bắt buộc lý do; lượt trình và hồ sơ TU_CHOI (kết thúc).
-- thu_hoi: khi cấp của người ký còn mở và lượt chưa hoàn thành; ký nháy chặn không thu hồi được khi
-  ký chính cùng cấp đã ký; ký chính đã mở nhưng chưa ký thì bị khóa lại.
+- thu_hoi: khi cấp của người ký còn mở và lượt chưa hoàn thành.
 
 Mọi hành động trên một lượt trình khóa dòng lượt trình trước (select_for_update) nên các thao tác đồng
 thời (ký – ký, ký – từ chối, ký – hủy) được xử lý tuần tự; chỉ một kết quả hợp lệ. Chống thao tác lặp
@@ -86,7 +85,7 @@ def _hoan_tat_neu_du(luot, cap, nguoi, thoi_diem):
     """Đóng cấp khi mọi người ký trong cấp đã ký; mở cấp sau hoặc hoàn thành lượt trình và hồ sơ."""
     con_cho = cap.nguoi_ky_set.exclude(trang_thai=enums.TrangThaiNguoiKy.DA_KY).exists()
     if con_cho:
-        mo_nguoi_ky_trong_cap(cap, thoi_diem)  # ký nháy chặn vừa ký đủ thì mở ký chính
+        mo_nguoi_ky_trong_cap(cap, thoi_diem)
         return
     cap.trang_thai = enums.TrangThaiCapKy.HOAN_THANH
     cap.thoi_diem_hoan_thanh = thoi_diem
@@ -111,12 +110,13 @@ def _hoan_tat_neu_du(luot, cap, nguoi, thoi_diem):
     thong_bao.su_kien(yeu_cau, luot, "HOAN_THANH", nguoi)
 
 
-def _chup_anh_chu_ky(nguoi):
+def _chup_anh_chu_ky(nguoi, anh_tu_trinh_duyet=None):
     """
     Snapshot ảnh chữ ký cá nhân tại thời điểm ký (plan mục 3.2): đổi ảnh trong hồ sơ sau đó không làm đổi tệp
-    hoàn tất. Chưa có ảnh (Nhóm 7 chưa cung cấp) hoặc không lưu được thì ký vẫn hợp lệ, tệp hoàn tất in khối chữ.
+    hoàn tất. Ưu tiên ảnh phía server (Nhóm 7, nếu có); chưa có thì dùng ảnh PNG trình duyệt gửi kèm yêu cầu
+    ký (đã kiểm ở serializer, #420). Chưa có ảnh hoặc không lưu được thì ký vẫn hợp lệ, tệp hoàn tất in khối chữ.
     """
-    anh = to_chuc.anh_chu_ky(nguoi)
+    anh = to_chuc.anh_chu_ky(nguoi) or anh_tu_trinh_duyet
     if not anh:
         return "", ""
     try:
@@ -140,7 +140,8 @@ def _kiem_tra_khoa(nguoi, khoa_ky_id, thoi_diem):
 
 
 @transaction.atomic
-def ky(yeu_cau, nguoi, *, khoa_ky, hash_tai_lieu, chu_ky_so, khoa_chong_trung, ghi_chu_ky="", dia_chi_ip=None):
+def ky(yeu_cau, nguoi, *, khoa_ky, hash_tai_lieu, chu_ky_so, khoa_chong_trung, ghi_chu_ky="", dia_chi_ip=None,
+       anh_chu_ky=None):
     if _thao_tac_lap(yeu_cau, nguoi, khoa_chong_trung):
         return SigningRequest.objects.get(pk=yeu_cau.pk)  # ký lặp cùng khóa: trả kết quả lần trước
     luot = _khoa_luot_hien_hanh(yeu_cau)
@@ -158,7 +159,7 @@ def ky(yeu_cau, nguoi, *, khoa_ky, hash_tai_lieu, chu_ky_so, khoa_chong_trung, g
                            fields={"chu_ky_so": ["Không xác minh được."]})
     cap = SigningRequestStep.objects.select_for_update().get(pk=dong.buoc_ky_id)
     tre = cap.han_xu_ly is not None and thoi_diem > cap.han_xu_ly
-    vi_tri_anh, ma_bam_anh = _chup_anh_chu_ky(nguoi)
+    vi_tri_anh, ma_bam_anh = _chup_anh_chu_ky(nguoi, anh_chu_ky)
     chu_ky = SigningSignature.objects.create(
         luot_trinh=luot, buoc_ky=dong, khoa_ky=khoa, hash_tai_lieu=hash_tai_lieu, thuat_toan=khoa.thuat_toan,
         chu_ky_so=chu_ky_so, ghi_chu_ky=ghi_chu_ky, ky_tre_han=tre,
