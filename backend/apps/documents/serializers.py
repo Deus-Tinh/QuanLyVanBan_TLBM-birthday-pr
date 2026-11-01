@@ -598,7 +598,7 @@ def _validate_hieu_luc_permission(attrs, instance=None, request=None, loai="DEN"
 def _validate_send_mail_permission(attrs, instance=None, request=None, loai="DEN"):
     """
     Kiểm tra quyền gửi mail diện rộng toàn hệ thống (Nhóm 7 contract: send_mail_all_*):
-    - Với văn bản Mật / Hạn chế: Tuyệt đối cấm gửi mail toàn trường, luôn ép về False.
+    - Với văn bản Mật / Hạn chế: Tuyệt đối cấm gửi mail toàn hệ thống, luôn ép về False.
     - Với văn bản Thường (NOI_BO): Nếu gui_mail_toan_he_thong = True mà người dùng không có quyền send_mail_all_*
       thì từ chối ValidationError.
     """
@@ -992,7 +992,7 @@ class DocumentCreateUpdateSerializer(serializers.Serializer):
         loai = validated_data.pop("loai", LoaiVanBan.DEN)
         model = get_document_model(loai)
 
-        # VB hạn chế / VB Mật không gửi mail toàn trường
+        # VB hạn chế / VB Mật không gửi mail toàn hệ thống
         pham_vi = validated_data.get("pham_vi", PhamVi.NOI_BO)
         if pham_vi == PhamVi.HAN_CHE or loai == LoaiVanBan.MAT:
             validated_data["pham_vi"] = PhamVi.HAN_CHE
