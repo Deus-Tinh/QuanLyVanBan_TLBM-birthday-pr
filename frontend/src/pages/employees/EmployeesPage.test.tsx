@@ -214,9 +214,8 @@ describe('EmployeesPage Component (Issue #24)', () => {
     expect(await screen.findByText('Vui lòng chọn lý do đặt lại mật khẩu.')).toBeInTheDocument();
     expect(mockedApiClient.post).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText('Lý do đặt lại mật khẩu'), {
-      target: { value: 'FORGOT_PASSWORD' },
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'Lý do đặt lại mật khẩu' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Quên mật khẩu' }));
     fireEvent.click(screen.getByRole('button', { name: 'Lưu mật khẩu mới' }));
 
     await waitFor(() => {
