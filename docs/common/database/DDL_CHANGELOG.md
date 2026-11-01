@@ -4,6 +4,7 @@ Mỗi PR sửa `release_DDL.sql` thêm một mục ở đầu danh sách (mới 
 
 | Ngày | PR | Đối tượng thay đổi | Lý do |
 |---|---|---|---|
+| 2026-11-01 | issue #449 | Thêm bảng `signing_right_lock` (khóa quyền ký của tài khoản do quản trị viên đặt: người bị khóa, người khóa, lý do, thời hạn, người bật lại, lý do bật lại), chỉ mục duy nhất một dòng chưa bật lại cho mỗi tài khoản, trigger `trg_signing_right_lock_updated_at`; migration `signing/0020_khoa_quyen_ky` | Phân vùng 3 của #447: khóa tạm thời và bật lại quyền ký có lý do, có nhật ký, chặn ký khi đang khóa |
 | 2026-11-01 | issue #444 | Thêm bảng accounts_password_reset_audit và migration accounts.0013_password_reset_audit; lưu actor, tài khoản đích, snapshot username, mã lý do, nội dung lý do tùy chọn và thời điểm | Chỉ admin được đặt lại mật khẩu CBNV; cần lưu dấu vết kiểm toán mà không ghi mật khẩu hoặc hash, vẫn giữ dấu vết khi tài khoản bị xóa |
 | 2026-10-31 | issue #417 | Seed `auth_permission`: thêm `view_all_trinhky` (nhóm Trình ký); seed `auth_group_permissions`: gán cho nhóm `ADMIN` (CROSS JOIN sẵn có), `BGD` và `VT` (211 -> 214 lượt phân quyền); migration `authorization.0013_add_view_all_trinhky_permission` bổ sung cho DB đã seed | Văn thư xem toàn bộ hồ sơ trình ký như BGD và ADMIN mà không mở nhật ký kiểm toán (`view_signing_audit`) |
 | 2026-10-31 | issue #424 | Thêm bảng `signing_user_signature` và trigger `trg_signing_user_signature_updated_at` | Lưu trữ ảnh chữ ký cá nhân (PNG) của người dùng trên máy chủ phục vụ dán ảnh chữ ký khi hoàn tất ký duyệt |
