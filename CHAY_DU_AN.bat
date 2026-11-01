@@ -32,7 +32,7 @@ echo.
 
 echo   * Dang bat Backend Django tai http://127.0.0.1:8000 ...
 pushd "%~dp0backend"
-start "QLVB - Backend [Django :8000]" cmd /k "chcp 65001 >nul & title QLVB - Backend [Django :8000] & python manage.py runserver 127.0.0.1:8000"
+start "QLVB - Backend [Django :8000]" cmd /k "chcp 65001 >nul & title QLVB - Backend [Django :8000] & if exist .venv\Scripts\activate.bat (call .venv\Scripts\activate.bat) & python manage.py runserver 127.0.0.1:8000"
 popd
 
 echo   * Dang bat Frontend React tai http://localhost:5173 ...

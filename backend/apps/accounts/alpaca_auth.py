@@ -1,8 +1,9 @@
 """
-Dịch vụ xác thực người dùng qua API Ngân hàng Bảo Long (Alpaca / BHBL).
+Dịch vụ xác thực người dùng qua API Ngân hàng / Bảo hiểm Bảo Long (Alpaca / BHBL).
 Tài liệu tham chiếu: "API user của app Ngân hàng Bảo Long.docx"
-- API 1: check-user-exist (POST https://phase2-sit-api.alpaca.vn/auth-command/public/user/check-user-exist)
-- API 2: check-auth-user (POST https://phase2-sit-api.alpaca.vn/auth-command/public/user/check-auth-user)
+- API 1: check-user-exist (POST https://api2.bhbl.vn/auth-command/public/user/check-user-exist)
+- API 2: check-auth-user (POST https://api2.bhbl.vn/auth-command/public/user/check-auth-user)
+- API 3: get-info-user (POST https://api2.bhbl.vn/auth-command/public/user/get-info-user)
 - Quy tắc sinh mã MAC: UpperCase(MD5(SECRET_KEY + sorted_params))
 """
 import hashlib
@@ -37,8 +38,31 @@ def get_alpaca_check_auth_url() -> str:
     return getattr(
         settings,
         "ALPACA_CHECK_AUTH_URL",
-        "https://phase2-sit-api.alpaca.vn/auth-command/public/user/check-auth-user",
+        "https://api2.bhbl.vn/auth-command/public/user/check-auth-user",
     )
+
+
+def get_alpaca_check_user_url() -> str:
+    """Endpoint API check-user-exist của Bảo Long."""
+    return getattr(
+        settings,
+        "ALPACA_CHECK_USER_URL",
+        "https://api2.bhbl.vn/auth-command/public/user/check-user-exist",
+    )
+
+
+def get_alpaca_user_info_url() -> str:
+    """Endpoint API get-info-user của Bảo Long."""
+    return getattr(
+        settings,
+        "ALPACA_GET_USER_INFO_URL",
+        "https://api2.bhbl.vn/auth-command/public/user/get-info-user",
+    )
+
+
+def get_alpaca_bearer_key() -> str:
+    """Bearer Authorization Key dùng cho API get-info-user."""
+    return getattr(settings, "ALPACA_BEARER_AUTH_KEY", "")
 
 
 def generate_alpaca_auth_mac(username: str, password: str, secret_key: str = None) -> str:
@@ -175,4 +199,95 @@ def check_alpaca_auth(username: str, password: str) -> dict:
             "status_name": "CONNECTION_ERROR",
             "message": f"Không thể kết nối đến máy chủ xác thực Bảo Long: {exc}",
             "is_fallback": False,
+        }
+
+
+def check_alpaca_user_exist(username: str) -> dict:
+    """
+    Gọi API check-user-exist của Ngân hàng Bảo Long để kiểm tra username có tồn tại.
+    Payload: {"userName": username, "mac": MAC}
+    Trả về: {"success": bool, "exists": bool, "message": str}
+    """
+    if not username:
+        return {"success": False, "exists": False, "message": "Tên đăng nhập không được để trống."}
+
+    mac = generate_alpaca_user_exist_mac(username)
+    payload = {"userName": username, "mac": mac}
+    url = get_alpaca_check_user_url()
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    }
+    req_timeout = 0.5 if getattr(settings, "TESTING", False) else 3.5
+
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=req_timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            exists = bool(data.get("Data", False))
+            return {
+                "success": bool(data.get("Success", False)),
+                "exists": exists,
+                "message": "Kiểm tra tài khoản thành công." if exists else "Tài khoản không tồn tại.",
+                "raw": data,
+            }
+    except Exception as exc:
+        logger.warning("Không thể kết nối đến API check-user-exist (%s): %s", url, exc)
+        return {
+            "success": False,
+            "exists": False,
+            "message": f"Lỗi kết nối máy chủ Bảo Long: {exc}",
+        }
+
+
+def get_alpaca_user_info(username: str) -> dict:
+    """
+    Gọi API get-info-user của Ngân hàng Bảo Long để lấy thông tin chi tiết CBNV.
+    Header: Authorization: Bearer <ALPACA_BEARER_AUTH_KEY>
+    Payload: {"userName": username, "mac": MAC}
+    Trả về: {"success": bool, "data": list, "message": str}
+    """
+    if not username:
+        return {"success": False, "data": [], "message": "Tên đăng nhập không được để trống."}
+
+    mac = generate_alpaca_user_exist_mac(username)
+    payload = {"userName": username, "mac": mac}
+    url = get_alpaca_user_info_url()
+    bearer_key = get_alpaca_bearer_key()
+
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    }
+    if bearer_key:
+        headers["Authorization"] = f"Bearer {bearer_key}"
+
+    req_timeout = 0.5 if getattr(settings, "TESTING", False) else 3.5
+
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=req_timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return {
+                "success": bool(data.get("Success", False)),
+                "data": data.get("Data", []),
+                "message": "Lấy thông tin người dùng thành công.",
+                "raw": data,
+            }
+    except Exception as exc:
+        logger.warning("Không thể kết nối đến API get-info-user (%s): %s", url, exc)
+        return {
+            "success": False,
+            "data": [],
+            "message": f"Lỗi kết nối máy chủ Bảo Long: {exc}",
         }

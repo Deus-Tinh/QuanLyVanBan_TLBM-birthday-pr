@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import apiClient, { ApiError } from '@lib/apiClient';
 import { authService } from '@lib/authService';
 import { DocumentDetail, DocumentItem, DocumentStatus, PaginatedResponse } from '@app-types/document';
-import { Button } from '@components/common';
+import { Button, Select, SelectOption } from '@components/common';
 import AlertModal from '@components/common/AlertModal';
 import { useTranslation } from '@i18n/translate';
 import { usePermissions } from '@lib/permissions';
@@ -363,6 +363,45 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
   const [dynamicFolders, setDynamicFolders] = useState<string[]>([]);
   const [dynamicRecordDossiers, setDynamicRecordDossiers] = useState<Array<{ id: number | string; ten_ho_so: string; so_ky_hieu?: string }>>([]);
   const [dynamicFolderDocTypesMap, setDynamicFolderDocTypesMap] = useState<Record<string, string[]>>({});
+
+  // Danh sách options cho Select Danh mục hồ sơ (Áp dụng giao diện Select tìm kiếm thông minh từ FilterBar)
+  const formDossierOptions: SelectOption[] = useMemo(() => {
+    const opts: SelectOption[] = [
+      { value: '', label: t('documents_ui.formModal.dossierSelectPlaceholder') || '-- Chọn danh mục hồ sơ nội bộ --' },
+    ];
+    dynamicFolders.forEach((f) => {
+      const matched = dynamicRecordDossiers.find((d) => d.ten_ho_so === f);
+      const label = matched?.so_ky_hieu ? `[${matched.so_ky_hieu}] ${f}` : f;
+      opts.push({ value: f, label });
+    });
+    if (form.danh_muc_ho_so && !dynamicFolders.includes(form.danh_muc_ho_so)) {
+      opts.push({ value: form.danh_muc_ho_so, label: form.danh_muc_ho_so });
+    }
+    return opts;
+  }, [dynamicFolders, dynamicRecordDossiers, form.danh_muc_ho_so, t]);
+
+  // Danh sách options cho Select Loại văn bản (phụ thuộc danh mục hồ sơ)
+  const formDocTypeOptions: SelectOption[] = useMemo(() => {
+    const placeholder = !form.danh_muc_ho_so?.trim()
+      ? (t('documents_ui.formModal.docTypePromptSelect') || '— Vui lòng chọn danh mục hồ sơ trước —')
+      : (t('documents_ui.formModal.docTypeSelectPlaceholder') || '-- Chọn loại văn bản --');
+    const opts: SelectOption[] = [
+      { value: '', label: placeholder },
+    ];
+    if (form.danh_muc_ho_so?.trim()) {
+      const dynamicTypes = dynamicFolderDocTypesMap[form.danh_muc_ho_so];
+      const allowedTypes = (dynamicTypes && dynamicTypes.length > 0)
+        ? dynamicTypes
+        : (DEFAULT_INTERNAL_FOLDERS[form.danh_muc_ho_so] || DEFAULT_DOC_TYPES);
+      allowedTypes.forEach((tOpt) => {
+        opts.push({ value: tOpt, label: tOpt });
+      });
+      if (form.ten_loai_van_ban && !allowedTypes.includes(form.ten_loai_van_ban)) {
+        opts.push({ value: form.ten_loai_van_ban, label: form.ten_loai_van_ban });
+      }
+    }
+    return opts;
+  }, [form.danh_muc_ho_so, form.ten_loai_van_ban, dynamicFolderDocTypesMap, t]);
 
   // Gợi ý và tìm kiếm văn bản thay thế (hỗ trợ chọn nhiều văn bản cùng hệ & cùng phạm vi)
   const [replacementSuggestions, setReplacementSuggestions] = useState<SuggestedDoc[]>([]);
@@ -1252,17 +1291,17 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 md:p-6 overflow-y-auto">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-y-auto">
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity" onClick={onClose} />
 
       {/* Modal Dialog Card */}
       <form
-        className="bg-surface border border-border-subtle rounded-2xl shadow-2xl z-10 w-[940px] max-w-full flex flex-col max-h-[88vh] my-auto animate-in fade-in duration-150"
+        className="bg-surface border border-border-subtle rounded-2xl shadow-2xl z-10 w-[940px] max-w-full flex flex-col max-h-[92vh] sm:max-h-[88vh] my-auto animate-in fade-in duration-150"
         onSubmit={handleSubmit}
       >
         {/* Sticky Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle shrink-0">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-border-subtle shrink-0">
           <div className="flex items-center gap-3">
             <span className="w-10 h-10 rounded-xl bg-primary-subtle text-primary flex items-center justify-center text-lg">
               <i className={initial?.id ? 'fa-solid fa-file-pen' : 'fa-solid fa-file-circle-plus'} />
@@ -1303,9 +1342,9 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
         </div>
 
         {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-3.5 sm:p-6 space-y-4 sm:space-y-6 custom-scrollbar">
           {/* PHẦN 1: TIẾP NHẬN & VÀO SỔ */}
-          <div className="bg-canvas/40 border border-border-subtle rounded-xl p-4 sm:p-5 space-y-3.5">
+          <div className="bg-canvas/40 border border-border-subtle rounded-xl p-3.5 sm:p-5 space-y-3.5">
             <div className="flex items-center justify-between pb-2.5 border-b border-border-subtle/60 gap-4">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="w-6 h-6 rounded-md bg-blue-500/10 text-blue-600 flex items-center justify-center text-xs font-bold shrink-0">
@@ -1391,7 +1430,7 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
               </div>
 
               {/* Danh mục hồ sơ */}
-              <div className="col-span-12 sm:col-span-4">
+              <div className="col-span-12 sm:col-span-4 min-w-0">
                 <label className="block text-xs font-semibold text-secondary mb-1.5 flex items-center justify-between">
                   <span>{t('documents_ui.formModal.dossierCatalog') || 'Danh mục hồ sơ'} <span className="text-rose-500 font-bold">*</span></span>
                   {form.loai !== 'DEN' && (
@@ -1415,36 +1454,29 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                     required
                   />
                 ) : (
-                  <select
-                    value={form.danh_muc_ho_so}
-                    onChange={e => {
-                      const newFolder = e.target.value;
-                      setForm({
-                        ...form,
-                        danh_muc_ho_so: newFolder,
-                        ten_loai_van_ban: '', // Khóa nghiệp vụ: Reset loại văn bản để bắt buộc chọn lại theo hồ sơ mới
-                      });
-                    }}
-                    className="w-full text-sm bg-surface border border-border-subtle rounded-xl px-3 py-2 text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-fast"
-                    required
-                  >
-                    <option value="">{t('documents_ui.formModal.dossierSelectPlaceholder') || '-- Chọn danh mục hồ sơ nội bộ --'}</option>
-                    {dynamicFolders.map((f) => {
-                      const matched = dynamicRecordDossiers.find((d) => d.ten_ho_so === f);
-                      const label = matched?.so_ky_hieu ? `[${matched.so_ky_hieu}] ${f}` : f;
-                      return (
-                        <option key={f} value={f}>{label}</option>
-                      );
-                    })}
-                    {form.danh_muc_ho_so && !dynamicFolders.includes(form.danh_muc_ho_so) && (
-                      <option value={form.danh_muc_ho_so}>{form.danh_muc_ho_so}</option>
-                    )}
-                  </select>
+                  <div className="relative w-full max-w-full min-w-0">
+                    <Select
+                      nativeSelect
+                      title="Chọn danh mục hồ sơ"
+                      value={form.danh_muc_ho_so}
+                      onChange={newFolder => {
+                        setForm({
+                          ...form,
+                          danh_muc_ho_so: newFolder,
+                          ten_loai_van_ban: '', // Khóa nghiệp vụ: Reset loại văn bản để bắt buộc chọn lại theo hồ sơ mới
+                        });
+                      }}
+                      options={formDossierOptions}
+                      placeholder={t('documents_ui.formModal.dossierSelectPlaceholder') || '-- Chọn danh mục hồ sơ nội bộ --'}
+                      size="md"
+                      searchable={formDossierOptions.length > 5}
+                    />
+                  </div>
                 )}
               </div>
 
               {/* Loại văn bản */}
-              <div className="col-span-12 sm:col-span-4">
+              <div className="col-span-12 sm:col-span-4 min-w-0">
                 <label className="block text-xs font-semibold text-secondary mb-1.5 flex items-center justify-between">
                   <span>{t('documents_ui.formModal.docType') || 'Loại văn bản'} <span className="text-rose-500 font-bold">*</span></span>
                   {!form.danh_muc_ho_so?.trim() ? (
@@ -1472,38 +1504,21 @@ export default function DocumentFormModal({ open, onClose, initial, onSaved, def
                     required
                   />
                 ) : (
-                  <select
-                    disabled={!form.danh_muc_ho_so?.trim()}
-                    value={form.ten_loai_van_ban}
-                    onChange={e => setForm({ ...form, ten_loai_van_ban: e.target.value })}
-                    className="w-full text-sm bg-surface border border-border-subtle rounded-xl px-3 py-2 text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-fast disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-hover/60"
-                    required
-                  >
-                    <option value="">
-                      {!form.danh_muc_ho_so?.trim()
+                  <div className="relative w-full max-w-full min-w-0">
+                    <Select
+                      nativeSelect
+                      disabled={!form.danh_muc_ho_so?.trim()}
+                      title="Chọn loại văn bản"
+                      value={form.ten_loai_van_ban}
+                      onChange={newType => setForm({ ...form, ten_loai_van_ban: newType })}
+                      options={formDocTypeOptions}
+                      placeholder={!form.danh_muc_ho_so?.trim()
                         ? (t('documents_ui.formModal.docTypePromptSelect') || '— Vui lòng chọn danh mục hồ sơ trước —')
                         : (t('documents_ui.formModal.docTypeSelectPlaceholder') || '-- Chọn loại văn bản --')}
-                    </option>
-                    {(() => {
-                      const dynamicTypes = form.danh_muc_ho_so ? dynamicFolderDocTypesMap[form.danh_muc_ho_so] : null;
-                      const allowedTypes = (dynamicTypes && dynamicTypes.length > 0)
-                        ? dynamicTypes
-                        : (DEFAULT_INTERNAL_FOLDERS[form.danh_muc_ho_so] || DEFAULT_DOC_TYPES);
-                      return (
-                        <>
-                          {form.danh_muc_ho_so?.trim() &&
-                            allowedTypes.map(tOpt => (
-                              <option key={tOpt} value={tOpt}>{tOpt}</option>
-                            ))}
-                          {form.ten_loai_van_ban &&
-                            form.danh_muc_ho_so?.trim() &&
-                            !allowedTypes.includes(form.ten_loai_van_ban) && (
-                              <option value={form.ten_loai_van_ban}>{form.ten_loai_van_ban}</option>
-                            )}
-                        </>
-                      );
-                    })()}
-                  </select>
+                      size="md"
+                      searchable={formDocTypeOptions.length > 7}
+                    />
+                  </div>
                 )}
               </div>
 

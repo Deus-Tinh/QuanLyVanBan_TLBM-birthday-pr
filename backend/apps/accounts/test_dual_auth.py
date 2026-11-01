@@ -16,6 +16,11 @@ from accounts.alpaca_auth import (
     generate_alpaca_auth_mac,
     generate_alpaca_user_exist_mac,
     check_alpaca_auth,
+    check_alpaca_user_exist,
+    get_alpaca_user_info,
+    get_alpaca_check_auth_url,
+    get_alpaca_check_user_url,
+    get_alpaca_user_info_url,
 )
 
 User = get_user_model()
@@ -224,4 +229,39 @@ class DualAuthenticationTests(TestCase):
         self.assertEqual(self.staff.password, old_password_hash)
         self.assertTrue(self.staff.check_password("InitialPassword@123"))
         self.assertFalse(self.staff.check_password("ExternalPassword123"))
+
+    def test_default_endpoints_point_to_api2_bhbl_vn(self):
+        """Kiểm tra toàn bộ 3 API đều trỏ về domain chính thức https://api2.bhbl.vn theo yêu cầu của GVHD."""
+        self.assertTrue(get_alpaca_check_auth_url().startswith("https://api2.bhbl.vn/"))
+        self.assertTrue(get_alpaca_check_user_url().startswith("https://api2.bhbl.vn/"))
+        self.assertTrue(get_alpaca_user_info_url().startswith("https://api2.bhbl.vn/"))
+
+    def test_check_alpaca_user_exist_helper(self):
+        """Kiểm tra helper check_alpaca_user_exist với phản hồi thành công."""
+        self.provider.side_effect = None
+        self.provider.return_value.__enter__.return_value.read.return_value = json.dumps({
+            "Success": True, "Data": True, "StatusCode": "200"
+        }).encode()
+
+        result = check_alpaca_user_exist("admincore")
+        self.assertTrue(result["success"])
+        self.assertTrue(result["exists"])
+
+    def test_get_alpaca_user_info_helper(self):
+        """Kiểm tra helper get_alpaca_user_info với phản hồi thông tin CBNV."""
+        self.provider.side_effect = None
+        self.provider.return_value.__enter__.return_value.read.return_value = json.dumps({
+            "Success": True,
+            "Data": [{
+                "userName": "admincore",
+                "fullName": "Admin Core",
+                "email": "admincore@baohiembaolong.vn",
+            }],
+            "StatusCode": "200",
+        }).encode()
+
+        result = get_alpaca_user_info("admincore")
+        self.assertTrue(result["success"])
+        self.assertEqual(len(result["data"]), 1)
+        self.assertEqual(result["data"][0]["fullName"], "Admin Core")
 
