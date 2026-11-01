@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { SAMPLE_STREAMS } from '@lib/constants';
 import { NotificationStreamType, NotificationItem, StreamData } from '@app-types/notification';
 import { useTranslation } from '@i18n/translate';
+import { formatUserName } from '@lib/roleUtils';
 import DocumentPreviewModal from '@components/dashboard/DocumentPreviewModal';
 import { DocumentItem } from '@components/dashboard/ModernDashboardView';
 
@@ -52,7 +53,7 @@ interface DashboardOverviewApiResponse {
 
 export default function NotificationStreams() {
   const navigate = useNavigate();
-  const { t } = useTranslation();
+  const { t, currentLang } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<NotificationStreamType>('incoming');
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
@@ -125,11 +126,36 @@ export default function NotificationStreams() {
               id: `sign-${s.id}`,
               code: s.ma_trinh_ky || `TK-${s.id}`,
               title: s.tieu_de || defaultSigningTitle,
-              senderOrDept: s.nguoi_trinh ? `${submitterPrefix}: ${s.nguoi_trinh}` : pendingSigningLabel,
+              senderOrDept: s.nguoi_trinh ? `${submitterPrefix}: ${formatUserName(s.nguoi_trinh, currentLang)}` : pendingSigningLabel,
               time: s.ngay_gui || '',
               isRead: false,
             }))
           : [];
+
+        const sortByTimeDesc = (a: NotificationItem, b: NotificationItem): number => {
+          const parseDate = (d?: string): number => {
+            if (!d) return 0;
+            const match = d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+            if (match) {
+              return new Date(parseInt(match[3], 10), parseInt(match[2], 10) - 1, parseInt(match[1], 10)).getTime();
+            }
+            const parsed = Date.parse(d);
+            return isNaN(parsed) ? 0 : parsed;
+          };
+          const timeA = parseDate(a.time);
+          const timeB = parseDate(b.time);
+          if (timeB !== timeA) {
+            return timeB - timeA;
+          }
+          const idNumA = parseInt(String(a.id).replace(/\D/g, ''), 10) || 0;
+          const idNumB = parseInt(String(b.id).replace(/\D/g, ''), 10) || 0;
+          return idNumB - idNumA;
+        };
+
+        inItems.sort(sortByTimeDesc);
+        outItems.sort(sortByTimeDesc);
+        confItems.sort(sortByTimeDesc);
+        approvalItems.sort(sortByTimeDesc);
 
         setStreams([
           {
@@ -169,7 +195,7 @@ export default function NotificationStreams() {
       .catch(() => {
         // Dự phòng giữ mảng mặc định nếu chưa đăng nhập hoặc lỗi mạng
       });
-  }, [t]);
+  }, [t, currentLang]);
 
   const handleOpenDoc = (item: NotificationItem) => {
     setIsOpen(false);

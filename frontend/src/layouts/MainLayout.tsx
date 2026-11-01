@@ -143,7 +143,7 @@ export default function MainLayout({
     }
     hoverLeaveTimerRef.current = setTimeout(() => {
       setIsSidebarHovered(false);
-    }, 280);
+    }, 75);
   };
 
   useEffect(() => {
@@ -368,7 +368,7 @@ export default function MainLayout({
             : 'max-lg:-translate-x-full max-lg:pointer-events-none lg:w-[72px] lg:translate-x-0 lg:pointer-events-auto lg:shadow-none'
         }`}
         style={{
-          transition: 'width 0.28s cubic-bezier(0.16, 1, 0.3, 1), transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease',
+          transition: 'width 160ms cubic-bezier(0.4, 0, 0.2, 1), transform 160ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms ease-out',
           willChange: 'width, transform',
         }}
         onMouseEnter={handleSidebarMouseEnter}
@@ -399,7 +399,7 @@ export default function MainLayout({
           isSidebarPinned && isEffectiveSidebarOpen ? 'lg:pl-[248px]' : 'lg:pl-[72px] pl-0'
         }`}
         style={{
-          transition: 'padding-left 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
+          transition: 'padding-left 160ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
         <AppHeader
