@@ -6,7 +6,7 @@
 import apiClient, { ApiError } from '@lib/apiClient';
 import { resolveDocumentApiUrl } from '@lib/routes';
 import type {
-  BangChung, BoLocHoSo, BoLocTaiLieu, CanBo, CanBoChucVu, ChucVu, DonViApDungHoSo, DonViLuaChon, TepTaiLieu, ThongKeHoSo, HoSo, HoSoChiTiet, KhoaKy, LoiNghiepVu, NguoiDungHienTai, QuyTrinh,
+  BangChung, BoLocHoSo, BoLocTaiLieu, CanBo, CanBoChucVu, ChucVu, DonViApDungHoSo, DonViLuaChon, TepTaiLieu, ThongKeHoSo, HoSo, HoSoChiTiet, KhoaKy, LoiNghiepVu, NguoiDungHienTai, QuanTriNguoiDung, QuyTrinh, ThoiHanKhoaQuyenKy, ThongTinAnhChuKyCaNhan,
   ThamSoKdf, TinNhan, TrangKetQua, TraoDoi, VanBanDi, VanBanDiTepDinhKem, ViTriKy,
 } from './types';
 
@@ -97,7 +97,7 @@ export const signingApi = {
     apiClient.post<HoSoChiTiet>(`${SIGNING_BASE}/trinh-ky/${id}/trinh-lai/`, {}, tieuDe(khoa)),
 
   // ── Hành động người ký ───────────────────────────────────────────────────
-  ky: (id: number, khoa: string, body: { khoa_ky: number; hash_tai_lieu: string; chu_ky_so: string; ghi_chu_ky: string; anh_chu_ky?: string }) =>
+  ky: (id: number, khoa: string, body: { khoa_ky: number; hash_tai_lieu: string; chu_ky_so: string; ghi_chu_ky: string }) =>
     apiClient.post<HoSoChiTiet>(`${SIGNING_BASE}/trinh-ky/${id}/ky/`, body, tieuDe(khoa)),
   tuChoi: (id: number, khoa: string, ly_do_tu_choi: string) =>
     apiClient.post<HoSoChiTiet>(`${SIGNING_BASE}/trinh-ky/${id}/tu-choi/`, { ly_do_tu_choi }, tieuDe(khoa)),
@@ -221,6 +221,25 @@ export const signingApi = {
   timVanBanDi: (q: string) => apiClient.get<VanBanDi[]>(`${SIGNING_BASE}/van-ban-di/?q=${encodeURIComponent(q)}`),
 
   // ── Khóa ký, PIN ─────────────────────────────────────────────────────────
+  // ── Ảnh chữ ký cá nhân (Issue #424) ──────────────────────────────────────
+  anhChuKyCaNhan: () => apiClient.get<ThongTinAnhChuKyCaNhan>(`${SIGNING_BASE}/anh-chu-ky-ca-nhan/`),
+  taiLenAnhChuKy: (tep: Blob | File) => {
+    const form = new FormData();
+    form.append('tep', tep, 'signature.png');
+    return apiClient.post<ThongTinAnhChuKyCaNhan>(`${SIGNING_BASE}/anh-chu-ky-ca-nhan/`, form);
+  },
+  xoaAnhChuKy: () => apiClient.delete<void>(`${SIGNING_BASE}/anh-chu-ky-ca-nhan/`),
+
+  // ── Quản trị khóa ký và quyền ký của tài khoản khác (quản trị viên) ──────────
+  quanTriNguoiDung: (q = '') =>
+    apiClient.get<QuanTriNguoiDung[]>(`${SIGNING_BASE}/quan-tri/nguoi-dung/?${new URLSearchParams({ q })}`),
+  quanTriKhoaQuyenKy: (id: number, thoi_han: ThoiHanKhoaQuyenKy, ly_do: string) =>
+    apiClient.post<QuanTriNguoiDung>(`${SIGNING_BASE}/quan-tri/nguoi-dung/${id}/khoa-quyen-ky/`, { thoi_han, ly_do }),
+  quanTriBatLaiQuyenKy: (id: number, ly_do: string) =>
+    apiClient.post<QuanTriNguoiDung>(`${SIGNING_BASE}/quan-tri/nguoi-dung/${id}/bat-lai-quyen-ky/`, { ly_do }),
+  quanTriThuHoiKhoa: (id: number, ly_do: string) =>
+    apiClient.post<QuanTriNguoiDung>(`${SIGNING_BASE}/quan-tri/nguoi-dung/${id}/thu-hoi-khoa/`, { ly_do }),
+
   khoa: () => apiClient.get<KhoaKy[]>(`${SIGNING_BASE}/khoa/`),
   dangKyKhoa: (ma_khoa: string, khoa_cong_khai: string) =>
     apiClient.post<KhoaKy>(`${SIGNING_BASE}/khoa/`, { ma_khoa, khoa_cong_khai, ngay_hieu_luc: new Date().toISOString() }),

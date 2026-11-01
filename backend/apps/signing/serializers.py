@@ -4,13 +4,14 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from . import anh_chu_ky as anh_ck, enums
+from . import enums
 from .errors import SigningError
 from .models import (
     SigningAttempt, SigningAuditLog, SigningChangeMessage, SigningChangeThread, SigningKey, SigningKeyUnlock,
     SigningProcess, SigningProcessStep, SigningProcessStepSigner, SigningRequest, SigningRequestStep,
     SigningRequestStepSigner,
 )
+from .services import quyen_ky as quyen_ky_service
 from .tich_hop import to_chuc
 from .tich_hop.van_ban import mo_ta_ho_so
 
@@ -130,6 +131,15 @@ class XacMinhSoHuuSerializer(serializers.Serializer):
 
 
 class ThuHoiKhoaSerializer(serializers.Serializer):
+    ly_do = serializers.CharField(max_length=MAX_LY_DO)
+
+
+class KhoaQuyenKySerializer(serializers.Serializer):
+    thoi_han = serializers.ChoiceField(choices=list(quyen_ky_service.THOI_HAN_KHOA))
+    ly_do = serializers.CharField(max_length=MAX_LY_DO)
+
+
+class BatLaiQuyenKySerializer(serializers.Serializer):
     ly_do = serializers.CharField(max_length=MAX_LY_DO)
 
 
@@ -442,16 +452,6 @@ class KySerializer(serializers.Serializer):
     hash_tai_lieu = serializers.RegexField(r"^[0-9a-f]{64}$")
     chu_ky_so = serializers.CharField(max_length=200)  # Ed25519 Base64 là 88 ký tự
     ghi_chu_ky = serializers.CharField(max_length=MAX_GHI_CHU, required=False, allow_blank=True, default="")
-    # Ảnh chữ ký PNG (Base64 hoặc data URL) do trình duyệt gửi; bỏ trống thì snapshot rỗng như trước (#420)
-    anh_chu_ky = serializers.CharField(required=False, allow_blank=True, write_only=True, trim_whitespace=False)
-
-    def validate_anh_chu_ky(self, value):
-        if not value.strip():
-            return None
-        try:
-            return anh_ck.giai_ma_anh(value)
-        except anh_ck.AnhChuKyKhongHop as exc:
-            raise serializers.ValidationError(str(exc))
 
 
 class TuChoiSerializer(serializers.Serializer):

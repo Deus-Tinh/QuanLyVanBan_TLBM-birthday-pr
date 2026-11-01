@@ -23,6 +23,10 @@ urlpatterns = [
     path("khoa/<int:pk>/thu-hoi/", views.KhoaActionView.as_view(action="thu-hoi"), name="khoa-thu-hoi"),
     path("khoa/<int:pk>/xoay-vong/", views.KhoaActionView.as_view(action="xoay-vong"), name="khoa-xoay-vong"),
 
+    # Ảnh chữ ký cá nhân (Issue #424)
+    path("anh-chu-ky-ca-nhan/", views.AnhChuKyCaNhanView.as_view(), name="anh-chu-ky-ca-nhan"),
+    path("anh-chu-ky-ca-nhan/tep/", views.AnhChuKyCaNhanTepView.as_view(), name="anh-chu-ky-ca-nhan-tep"),
+
     # PIN mở khóa ký (Phase 6)
     path("khoa/<int:pk>/dat-pin/", views.KhoaPinView.as_view(action="dat-pin"), name="khoa-dat-pin"),
     path("khoa/<int:pk>/mo-khoa-ky/", views.KhoaPinView.as_view(action="mo-khoa-ky"), name="khoa-mo-khoa-ky"),
@@ -40,6 +44,15 @@ urlpatterns = [
     path("trinh-ky/<int:pk>/huy/", views.TrinhKyActionView.as_view(action="huy"), name="trinh-ky-huy"),
     path("trinh-ky/<int:pk>/trinh-lai/", views.TrinhKyActionView.as_view(action="trinh-lai"),
          name="trinh-ky-trinh-lai"),
+
+    # Quản trị khóa ký và quyền ký của tài khoản khác (#451)
+    path("quan-tri/nguoi-dung/", views.QuanTriNguoiDungView.as_view(), name="quan-tri-nguoi-dung"),
+    path("quan-tri/nguoi-dung/<int:pk>/khoa-quyen-ky/", views.QuanTriHanhDongView.as_view(action="khoa-quyen-ky"),
+         name="quan-tri-khoa-quyen-ky"),
+    path("quan-tri/nguoi-dung/<int:pk>/bat-lai-quyen-ky/", views.QuanTriHanhDongView.as_view(action="bat-lai-quyen-ky"),
+         name="quan-tri-bat-lai-quyen-ky"),
+    path("quan-tri/nguoi-dung/<int:pk>/thu-hoi-khoa/", views.QuanTriHanhDongView.as_view(action="thu-hoi-khoa"),
+         name="quan-tri-thu-hoi-khoa"),
 
     # Hành động người ký (Phase 8, #80)
     path("trinh-ky/<int:pk>/ky/", views.HanhDongKyView.as_view(action="ky"), name="trinh-ky-ky"),

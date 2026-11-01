@@ -470,6 +470,29 @@ CREATE TABLE accounts_employee_import_job (
 
 CREATE INDEX idx_employee_import_status ON accounts_employee_import_job (status, created_at);
 
+-- Nhật ký đặt lại mật khẩu CBNV do quản trị viên thực hiện; không lưu mật khẩu/hash.
+CREATE TABLE accounts_password_reset_audit (
+    id BIGSERIAL PRIMARY KEY,
+    actor_id BIGINT REFERENCES accounts_employee (id),
+    target_id BIGINT REFERENCES accounts_employee (id),
+    actor_username VARCHAR(150) NOT NULL,
+    target_username VARCHAR(150) NOT NULL,
+    reason_code VARCHAR(32) NOT NULL,
+    reason_detail VARCHAR(500),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_pwd_reset_reason_code
+        CHECK (reason_code IN ('FORGOT_PASSWORD', 'COMPROMISED', 'LOST_ACCESS', 'OTHER')),
+    CONSTRAINT chk_pwd_reset_reason_detail
+        CHECK (
+            (reason_code = 'OTHER' AND reason_detail IS NOT NULL)
+            OR (reason_code <> 'OTHER' AND reason_detail IS NULL)
+        )
+);
+
+CREATE INDEX idx_pwd_reset_target_time ON accounts_password_reset_audit (target_id, created_at);
+
+CREATE INDEX idx_pwd_reset_actor_time ON accounts_password_reset_audit (actor_id, created_at);
+
 -- Ghi chú: spec mới (tab "Đvị, phòngban") không có trường "Trưởng đơn vị"
 -- trên organizations_donvi -> không tạo cột manager_id.
 
@@ -1399,6 +1422,50 @@ CREATE TABLE signing_key_unlock (
 );
 
 CREATE TRIGGER trg_signing_key_unlock_updated_at BEFORE UPDATE ON signing_key_unlock
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- 9.8c. Quản lý ảnh chữ ký cá nhân (Nhóm 5)
+CREATE TABLE signing_user_signature (
+    id BIGSERIAL PRIMARY KEY,
+    nguoi_dung_id BIGINT NOT NULL UNIQUE REFERENCES accounts_employee (id) ON DELETE CASCADE,
+    vi_tri_tep VARCHAR(500) NOT NULL,
+    ma_bam VARCHAR(64) NOT NULL,
+    dung_luong_bytes INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TRIGGER trg_signing_user_signature_updated_at BEFORE UPDATE ON signing_user_signature
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- 9.8d. [v1] Khóa quyền ký của tài khoản do quản trị viên đặt (Nhóm 5, issue #449) — bảng trạng thái.
+-- Một tài khoản có tối đa một dòng đang hiệu lực (bat_lai_luc IS NULL). khoa_den NULL: khóa đến khi được bật lại.
+-- Dòng hết hạn (khoa_den đã qua) được đóng bằng dịch vụ khi khóa lại; nguoi_bat_lai_id NULL là hết hạn tự nhiên.
+CREATE TABLE signing_right_lock (
+    id BIGSERIAL PRIMARY KEY,
+    nguoi_bi_khoa_id BIGINT NOT NULL REFERENCES accounts_employee (id) ON DELETE RESTRICT,
+    nguoi_khoa_id BIGINT NOT NULL REFERENCES accounts_employee (id) ON DELETE RESTRICT,
+    ly_do_khoa TEXT NOT NULL,
+    khoa_tu TIMESTAMPTZ NOT NULL DEFAULT now(),
+    khoa_den TIMESTAMPTZ,
+    nguoi_bat_lai_id BIGINT REFERENCES accounts_employee (id) ON DELETE RESTRICT,
+    ly_do_bat_lai TEXT NOT NULL DEFAULT '',
+    bat_lai_luc TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_signing_right_lock_ly_do_khoa CHECK (NOT (ly_do_khoa ~ '^\s*$')),
+    CONSTRAINT chk_signing_right_lock_thoi_han CHECK (khoa_den IS NULL OR khoa_den > khoa_tu),
+    CONSTRAINT chk_signing_right_lock_bat_lai CHECK (
+        (bat_lai_luc IS NULL AND nguoi_bat_lai_id IS NULL AND ly_do_bat_lai = '')
+        OR (bat_lai_luc IS NOT NULL AND (nguoi_bat_lai_id IS NULL OR NOT (ly_do_bat_lai ~ '^\s*$')))
+    )
+);
+
+CREATE UNIQUE INDEX uq_signing_right_lock_dang_khoa ON signing_right_lock (nguoi_bi_khoa_id) WHERE (bat_lai_luc IS NULL);
+CREATE INDEX idx_signing_right_lock_nguoi_khoa ON signing_right_lock (nguoi_khoa_id);
+CREATE INDEX idx_signing_right_lock_nguoi_bat_lai ON signing_right_lock (nguoi_bat_lai_id);
+
+CREATE TRIGGER trg_signing_right_lock_updated_at BEFORE UPDATE ON signing_right_lock
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- 9.9. Chữ ký số điện tử (Bảo toàn bằng chứng pháp lý — Bất biến không thể sửa/xóa)
