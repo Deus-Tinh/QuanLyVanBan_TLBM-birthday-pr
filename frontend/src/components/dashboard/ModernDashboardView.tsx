@@ -106,6 +106,22 @@ export interface ModernDashboardViewProps {
   birthdays?: BirthdayEmployee[];
 }
 
+interface ApiDocumentSearchAttachment {
+  ten_file?: string;
+  duong_dan?: string;
+}
+
+interface ApiDocumentSearchItem {
+  id: number | string;
+  so_hieu?: string;
+  trich_yeu?: string;
+  ngay_den?: string;
+  ngay_ban_hanh?: string;
+  noi_ban_hanh?: string;
+  nguoi_ky?: string;
+  dinh_kem?: ApiDocumentSearchAttachment[];
+}
+
 export default function ModernDashboardView({
   onNavigate = () => {},
   incomingCount = 0,
@@ -141,31 +157,31 @@ export default function ModernDashboardView({
 
   useEffect(() => {
     const trimmed = searchTerm.trim();
-    if (!trimmed) {
-      setServerIncoming(null);
-      setServerOutgoing(null);
-      setIsSearchingServer(false);
-      return;
-    }
-
     const timer = setTimeout(async () => {
+      if (!trimmed) {
+        setServerIncoming(null);
+        setServerOutgoing(null);
+        setIsSearchingServer(false);
+        return;
+      }
+
       setIsSearchingServer(true);
       try {
         const [resDen, resDi] = await Promise.allSettled([
-          apiClient<{ results: any[] }>(`/api/documents/den/?q=${encodeURIComponent(trimmed)}`),
-          apiClient<{ results: any[] }>(`/api/documents/di/?q=${encodeURIComponent(trimmed)}`),
+          apiClient<{ results: ApiDocumentSearchItem[] }>(`/api/documents/den/?q=${encodeURIComponent(trimmed)}`),
+          apiClient<{ results: ApiDocumentSearchItem[] }>(`/api/documents/di/?q=${encodeURIComponent(trimmed)}`),
         ]);
 
         if (resDen.status === 'fulfilled' && resDen.value?.results) {
-          const mappedDen: DocumentItem[] = resDen.value.results.map((d: any) => ({
+          const mappedDen: DocumentItem[] = resDen.value.results.map((d: ApiDocumentSearchItem) => ({
             id: d.id,
-            code: d.so_hieu,
-            title: d.trich_yeu,
+            code: d.so_hieu || '',
+            title: d.trich_yeu || '',
             date: d.ngay_den ? new Date(d.ngay_den).toLocaleDateString('vi-VN') : '',
             sender: d.noi_ban_hanh,
-            attachments: (d.dinh_kem || []).map((att: any) => ({
-              name: att.ten_file,
-              url: att.duong_dan,
+            attachments: (d.dinh_kem || []).map((att: ApiDocumentSearchAttachment) => ({
+              name: att.ten_file || '',
+              url: att.duong_dan || '',
               size: '',
             })),
           }));
@@ -173,22 +189,22 @@ export default function ModernDashboardView({
         }
 
         if (resDi.status === 'fulfilled' && resDi.value?.results) {
-          const mappedDi: DocumentItem[] = resDi.value.results.map((d: any) => ({
+          const mappedDi: DocumentItem[] = resDi.value.results.map((d: ApiDocumentSearchItem) => ({
             id: d.id,
-            code: d.so_hieu,
-            title: d.trich_yeu,
+            code: d.so_hieu || '',
+            title: d.trich_yeu || '',
             date: d.ngay_ban_hanh ? new Date(d.ngay_ban_hanh).toLocaleDateString('vi-VN') : '',
             sender: d.nguoi_ky,
             recipient: d.noi_ban_hanh,
-            attachments: (d.dinh_kem || []).map((att: any) => ({
-              name: att.ten_file,
-              url: att.duong_dan,
+            attachments: (d.dinh_kem || []).map((att: ApiDocumentSearchAttachment) => ({
+              name: att.ten_file || '',
+              url: att.duong_dan || '',
               size: '',
             })),
           }));
           setServerOutgoing(mappedDi);
         }
-      } catch (err) {
+      } catch {
         // Fallback to client search
       } finally {
         setIsSearchingServer(false);
@@ -346,7 +362,7 @@ export default function ModernDashboardView({
             placeholder={t('dashboardDetails.searchPlaceholder')}
             className="w-full pl-12 pr-10 py-3.5 rounded-xl border border-border-subtle bg-surface text-main text-base shadow-xs focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted"
           />
-          <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-muted text-lg pointer-events-none" />
+          <i className={`fa-solid ${isSearchingServer ? 'fa-spinner fa-spin text-primary' : 'fa-magnifying-glass text-muted'} absolute left-4 top-1/2 -translate-y-1/2 text-lg pointer-events-none transition-colors`} />
           {searchTerm && (
             <button
               type="button"
