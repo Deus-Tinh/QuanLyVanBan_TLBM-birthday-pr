@@ -1438,6 +1438,19 @@ CREATE TABLE signing_user_signature (
 CREATE TRIGGER trg_signing_user_signature_updated_at BEFORE UPDATE ON signing_user_signature
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- 9.8c2. Mã xác thực đặt lại PIN gửi qua email (Nhóm 5): lưu mã đã băm, một mã còn hiệu lực cho mỗi lần yêu cầu
+CREATE TABLE signing_pin_reset_code (
+    id BIGSERIAL PRIMARY KEY,
+    nguoi_dung_id BIGINT NOT NULL REFERENCES accounts_employee (id) ON DELETE CASCADE,
+    ma_bam VARCHAR(64) NOT NULL,
+    het_han TIMESTAMPTZ NOT NULL,
+    so_lan_sai INTEGER NOT NULL DEFAULT 0,
+    da_dung_luc TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_signing_pin_reset_user ON signing_pin_reset_code (nguoi_dung_id, created_at);
+
 -- 9.8d. [v1] Khóa quyền ký của tài khoản do quản trị viên đặt (Nhóm 5, issue #449) — bảng trạng thái.
 -- Một tài khoản có tối đa một dòng đang hiệu lực (bat_lai_luc IS NULL). khoa_den NULL: khóa đến khi được bật lại.
 -- Dòng hết hạn (khoa_den đã qua) được đóng bằng dịch vụ khi khóa lại; nguoi_bat_lai_id NULL là hết hạn tự nhiên.
