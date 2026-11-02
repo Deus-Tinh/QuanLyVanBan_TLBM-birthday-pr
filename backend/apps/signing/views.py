@@ -1081,9 +1081,7 @@ def _trang_thai_ky_cua(u, khoa_hoat_dong, khoa_quyen):
         "co_quyen_ky": co_quyen(u, KY_TRINH_KY),
         "khoa_ky": ({"id": khoa_hoat_dong.pk, "ma_khoa": khoa_hoat_dong.ma_khoa,
                      "trang_thai": khoa_hoat_dong.trang_thai} if khoa_hoat_dong else None),
-        "pin": ({"so_lan_sai": unlock.so_lan_sai, "khoa_den": unlock.khoa_den,
-                 "khoa_cung": unlock.so_lan_sai >= pin_service.NGUONG_KHOA_CUNG,
-                 "dang_khoa": bool(unlock.khoa_den and unlock.khoa_den > thoi_diem)} if unlock else None),
+        "pin": {"so_lan_sai": unlock.so_lan_sai} if unlock else None,
         "khoa_quyen_ky": ({"id": khoa_quyen.pk, "khoa_tu": khoa_quyen.khoa_tu, "khoa_den": khoa_quyen.khoa_den,
                            "ly_do": khoa_quyen.ly_do_khoa, "nguoi_khoa_id": khoa_quyen.nguoi_khoa_id}
                           if khoa_quyen else None),
