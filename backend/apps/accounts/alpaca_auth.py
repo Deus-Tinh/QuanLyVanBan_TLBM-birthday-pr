@@ -30,7 +30,7 @@ ALPACA_STATUS_MAP = {
 
 def get_alpaca_secret_key() -> str:
     """Khóa bí mật sinh chữ ký MAC, cấu hình qua biến môi trường ALPACA_SECRET_KEY."""
-    return getattr(settings, "ALPACA_SECRET_KEY", "") or "kkGGNm1OaUbakXnjaVL4CiiFjP2aLWLV"
+    return getattr(settings, "ALPACA_SECRET_KEY", "")
 
 
 def get_alpaca_check_auth_url() -> str:
