@@ -107,7 +107,7 @@ export default function KhoaPage() {
   }, [hoatDongId, toi, lanTaiBanBoc]);
 
   const loiPin = pin ? kiemTraPin(pin) : null;
-  const pinHopLe = !loiPin && pin.length === 8 && pin === pin2;
+  const pinHopLe = !loiPin && pin.length === 6 && pin === pin2;
 
   const lam = async (ham: () => Promise<unknown>, thanh_cong = t('hanhDong.thanhCong')) => {
     setDangLam(true);
