@@ -29,7 +29,7 @@ from signing.services import keys as key_service
 from signing.services import process as process_service
 from signing.services import trinh_ky as trinh_ky_service
 
-from .helpers import cap_quyen
+from .helpers import cap_quyen, dat_anh_chu_ky
 from .test_trinh_ky_phase7 import BASE, PDF, TrinhKyBase, VAN_BAN, tep_pdf
 
 User = get_user_model()
@@ -41,8 +41,8 @@ def khoa_hoat_dong(user, ma):
     raw = private.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     key = key_service.dang_ky(user, ma_khoa=ma, khoa_cong_khai=base64.b64encode(raw).decode(),
                               ngay_hieu_luc=timezone.now() - timedelta(minutes=1))
-    challenge = key_service.thach_thuc_so_huu(key).encode()
-    key_service.xac_minh_so_huu(key, user, base64.b64encode(private.sign(challenge)).decode())
+    challenge = key_service.thach_thuc_so_huu(key)
+    key_service.xac_minh_so_huu(key, user, challenge, base64.b64encode(private.sign(challenge.encode())).decode())
     key_service.kich_hoat(key, user)
     key.refresh_from_db()
     return private, key
@@ -248,6 +248,7 @@ class DongThoiTests(TransactionTestCase):
         self.ky1 = User.objects.create_user("ky1")
         cap_quyen(self.tao, "add_trinhky", "send_trinhky", "view_vanbandi")
         cap_quyen(self.ky1, "sign_trinhky")
+        dat_anh_chu_ky(self.ky1)
         from signing.services import process as process_service
         qt = process_service.tao_quy_trinh(self.tao, ma_quy_trinh="DT", ten_quy_trinh="DT", pham_vi="CONG_TY", cap_ky=[
             {"cap_ky": 1, "ten_cap_ky": "C", "thu_tu": 1, "nguoi_ky": [{"nguoi_ky": self.ky1, "thu_tu": 1}]}])

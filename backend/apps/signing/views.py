@@ -34,7 +34,7 @@ from .serializers import (
     BatLaiQuyenKySerializer, DatPinSerializer, DoiPinSerializer, GiaiQuyetSerializer, GuiTrinhKySerializer, HuyTrinhKySerializer,
     KhoaDangKySerializer,
     KhoaQuyenKySerializer, KhoaSerializer, KySerializer, LienKetVanBanDiSerializer, MoKhoaKySerializer, QuyTrinhInputSerializer,
-    QuyTrinhSerializer, ThuHoiKhoaSerializer, TrinhKyChiTietSerializer, TrinhKySerializer, TrinhKySuaSerializer,
+    MaXacThucSerializer, QuyTrinhSerializer, ThuHoiKhoaSerializer, TrinhKyChiTietSerializer, TrinhKySerializer, TrinhKySuaSerializer,
     TrinhKyTaoSerializer, TrinhLaiSerializer,
     TinNhanInputSerializer, TinNhanSerializer, TuChoiSerializer, XacMinhSoHuuSerializer,
     XoayVongSerializer, YeuCauSuaSerializer, YeuCauSuaThreadSerializer,
@@ -43,13 +43,14 @@ from .services import bang_chung as bang_chung_service
 from .services import hanh_dong_ky as hanh_dong_service
 from .services import keys as key_service
 from .services import pin as pin_service
+from .services import pin_reset as pin_reset_service
 from .services import quyen_ky as quyen_ky_service
 from .services import process as process_service
 from .services import thong_bao as thong_bao_service
 from .services import tep_hoan_tat as tep_hoan_tat_service
 from .services import trinh_ky as trinh_ky_service
 from .services import yeu_cau_sua as yeu_cau_sua_service
-from .storage import StorageError, get_storage
+from .storage import THU_MUC_ANH_CA_NHAN, StorageError, get_storage, xoa_tep_sau_commit
 from .tich_hop import to_chuc
 from .tich_hop.van_ban import id_van_ban_khop, mo_ta_nhieu_ho_so, tim_van_ban_di
 
@@ -176,6 +177,24 @@ class KhoaThachThucView(SigningAPIView):
         return Response({"thach_thuc": key_service.thach_thuc_so_huu(key)})
 
 
+class DatLaiPinYeuCauView(SigningAPIView):
+    """POST /dat-lai-pin/yeu-cau/: gửi mã xác thực 6 chữ số tới email của tài khoản (không cần quyền ký)."""
+
+    def post(self, request):
+        het_han = pin_reset_service.yeu_cau_ma(request.user, dia_chi_ip=_ip(request))
+        return Response({"het_han": het_han, "gian_cach_giay": int(pin_reset_service.GIAN_CACH_GUI.total_seconds())})
+
+
+class DatLaiPinXacNhanView(SigningAPIView):
+    """POST /dat-lai-pin/xac-nhan/ {ma}: mã đúng thì thu hồi khóa ký hiện tại; chủ khóa tạo khóa và PIN mới sau đó."""
+
+    def post(self, request):
+        data = MaXacThucSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        so_khoa = pin_reset_service.xac_nhan_ma(request.user, data.validated_data["ma"], dia_chi_ip=_ip(request))
+        return Response({"so_khoa_thu_hoi": so_khoa})
+
+
 class KhoaActionView(SigningAPIView):
     """POST /khoa/<pk>/<action>/ với action = xac-minh | kich-hoat | thu-hoi | xoay-vong."""
 
@@ -189,7 +208,8 @@ class KhoaActionView(SigningAPIView):
         if self.action == "xac-minh":
             data = XacMinhSoHuuSerializer(data=request.data)
             data.is_valid(raise_exception=True)
-            result = key_service.xac_minh_so_huu(key, request.user, data.validated_data["chu_ky_so"], ip)
+            result = key_service.xac_minh_so_huu(
+                key, request.user, data.validated_data["thach_thuc"], data.validated_data["chu_ky_so"], ip)
         elif self.action == "kich-hoat":
             result = key_service.kich_hoat(key, request.user, ip)
         elif self.action == "thu-hoi":
@@ -787,8 +807,8 @@ class ThongBaoView(SigningAPIView):
                 "loai_thong_bao": tb.loai_thong_bao,
                 "trinh_ky": tb.trinh_ky_id,
                 "van_ban": ten_van_ban,
-                "trang_thai_ho_so": tb.trinh_ky.trang_thai,
-                "ten_quy_trinh": tb.trinh_ky.quy_trinh.ten_quy_trinh,
+                "trang_thai_ho_so": tb.trinh_ky.trang_thai if tb.trinh_ky else None,
+                "ten_quy_trinh": tb.trinh_ky.quy_trinh.ten_quy_trinh if tb.trinh_ky else None,
                 "created_at": gio_dia_phuong(tb.created_at),
                 "kenh_in_app": True,
                 "email_da_gui": email_nb.trang_thai == enums.TrangThaiThongBao.DA_GUI if email_nb else False,
@@ -922,7 +942,7 @@ class ToiView(SigningAPIView):
             "quyen": {ma: co_quyen(u, ma) for ma in (XEM_TRINH_KY, TAO_TRINH_KY, GUI_TRINH_KY, KY_TRINH_KY,
                                                      HUY_TRINH_KY, XEM_NHAT_KY, XEM_TAT_CA, QUAN_LY_QUY_TRINH)},
             "la_quan_tri": to_chuc.la_quan_tri(u), "la_lanh_dao_don_vi": to_chuc.la_lanh_dao_don_vi(u, don_vi),
-            "co_anh_chu_ky": SigningUserSignature.objects.filter(nguoi_dung=u).exists(),
+            "co_anh_chu_ky": to_chuc.co_anh_chu_ky(u),
             "khoa_quyen_ky": (lambda k: {"khoa_den": k.khoa_den} if k else None)(quyen_ky_service.khoa_dang_hieu_luc(u)),
         })
 
@@ -1007,7 +1027,7 @@ class AnhChuKyCaNhanView(SigningAPIView):
 
         storage = get_storage()
         try:
-            meta = storage.save_bytes(data, "anh_chu_ky_nguoi_dung", "png")
+            meta = storage.save_bytes(data, THU_MUC_ANH_CA_NHAN, "png")
         except StorageError as exc:
             raise SigningError(
                 code="loi_luu_tep",
@@ -1015,6 +1035,8 @@ class AnhChuKyCaNhanView(SigningAPIView):
             ) from exc
 
         ma_bam = crypto.sha256_hex(data)
+        vi_tri_cu = SigningUserSignature.objects.filter(nguoi_dung=request.user).values_list(
+            "vi_tri_tep", flat=True).first()
         sig, _ = SigningUserSignature.objects.update_or_create(
             nguoi_dung=request.user,
             defaults={
@@ -1023,6 +1045,8 @@ class AnhChuKyCaNhanView(SigningAPIView):
                 "dung_luong_bytes": meta.kich_thuoc,
             },
         )
+        if vi_tri_cu and vi_tri_cu != meta.vi_tri_luu_tep:
+            xoa_tep_sau_commit(vi_tri_cu)
         return Response({
             "co_anh": True,
             "ma_bam": sig.ma_bam,
@@ -1033,7 +1057,11 @@ class AnhChuKyCaNhanView(SigningAPIView):
 
     def delete(self, request):
         yeu_cau_quyen(request.user, KY_TRINH_KY)
-        SigningUserSignature.objects.filter(nguoi_dung=request.user).delete()
+        sig = SigningUserSignature.objects.filter(nguoi_dung=request.user).first()
+        if sig is not None:
+            vi_tri = sig.vi_tri_tep
+            sig.delete()
+            xoa_tep_sau_commit(vi_tri)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -1041,19 +1069,11 @@ class AnhChuKyCaNhanTepView(SigningAPIView):
     """GET /anh-chu-ky-ca-nhan/tep/: tải tệp ảnh chữ ký của người dùng hiện tại để hiển thị preview."""
 
     def get(self, request):
-        sig = SigningUserSignature.objects.filter(nguoi_dung=request.user).first()
-        if not sig:
+        data = to_chuc.anh_chu_ky(request.user)
+        if not data:
             raise SigningError(
                 code="chua_co_anh_chu_ky",
                 detail="Người dùng chưa thiết lập ảnh chữ ký.",
-                status_code=status.HTTP_404_NOT_FOUND,
-            )
-        try:
-            data = get_storage().read_bytes(sig.vi_tri_tep)
-        except StorageError:
-            raise SigningError(
-                code="khong_doc_duoc_tep",
-                detail="Không đọc được tệp ảnh chữ ký.",
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         response = HttpResponse(data, content_type="image/png")
@@ -1080,9 +1100,7 @@ def _trang_thai_ky_cua(u, khoa_hoat_dong, khoa_quyen):
         "co_quyen_ky": co_quyen(u, KY_TRINH_KY),
         "khoa_ky": ({"id": khoa_hoat_dong.pk, "ma_khoa": khoa_hoat_dong.ma_khoa,
                      "trang_thai": khoa_hoat_dong.trang_thai} if khoa_hoat_dong else None),
-        "pin": ({"so_lan_sai": unlock.so_lan_sai, "khoa_den": unlock.khoa_den,
-                 "khoa_cung": unlock.so_lan_sai >= pin_service.NGUONG_KHOA_CUNG,
-                 "dang_khoa": bool(unlock.khoa_den and unlock.khoa_den > thoi_diem)} if unlock else None),
+        "pin": {"so_lan_sai": unlock.so_lan_sai} if unlock else None,
         "khoa_quyen_ky": ({"id": khoa_quyen.pk, "khoa_tu": khoa_quyen.khoa_tu, "khoa_den": khoa_quyen.khoa_den,
                            "ly_do": khoa_quyen.ly_do_khoa, "nguoi_khoa_id": khoa_quyen.nguoi_khoa_id}
                           if khoa_quyen else None),
