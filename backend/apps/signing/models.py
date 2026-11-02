@@ -493,7 +493,8 @@ class SigningAuditLog(models.Model):
 
 
 class SigningNotification(models.Model):
-    trinh_ky = models.ForeignKey(SigningRequest, on_delete=models.CASCADE, related_name="+")
+    # Rỗng với thông báo thao tác quản trị trên tài khoản (khóa/bật lại quyền ký, thu hồi khóa)
+    trinh_ky = models.ForeignKey(SigningRequest, null=True, blank=True, on_delete=models.CASCADE, related_name="+")
     buoc_ky = models.ForeignKey(
         SigningRequestStepSigner, null=True, blank=True, on_delete=models.CASCADE, related_name="+"
     )

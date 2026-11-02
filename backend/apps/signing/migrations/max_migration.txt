@@ -1,1 +1,1 @@
-0020_khoa_quyen_ky
+0021_thong_bao_khong_gan_ho_so
