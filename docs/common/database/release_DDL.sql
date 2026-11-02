@@ -1657,7 +1657,7 @@ CREATE TRIGGER trg_signing_audit_log_immutable
 -- 9.14. Thông báo trình ký (Outbox nhắc việc & gửi lại)
 CREATE TABLE signing_notification (
     id BIGSERIAL PRIMARY KEY,
-    trinh_ky_id BIGINT NOT NULL REFERENCES signing_request (id) ON DELETE CASCADE,
+    trinh_ky_id BIGINT REFERENCES signing_request (id) ON DELETE CASCADE,
     buoc_ky_id BIGINT REFERENCES signing_request_step_signer (id) ON DELETE CASCADE,
     nguoi_nhan_id BIGINT NOT NULL REFERENCES accounts_employee (id) ON DELETE RESTRICT,
     kenh VARCHAR(20) NOT NULL,
