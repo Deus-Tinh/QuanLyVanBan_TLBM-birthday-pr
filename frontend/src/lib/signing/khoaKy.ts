@@ -8,7 +8,8 @@
  *   ra được khóa bọc. Đổi PIN: server xoay vòng k_srv, client mở bằng k_srv cũ và bọc lại bằng k_srv mới.
  * - Server không nhận PIN, không nhận private key hay bản bọc.
  */
-import { argon2id, sha256 } from 'hash-wasm';
+import { sha256 } from 'hash-wasm';
+import { dinhArgon2 } from './argon2';
 import type { ThamSoKdf } from './types';
 
 export const KDF_MAC_DINH = { thuat_toan: 'argon2id' as const, m: 64 * 1024, t: 3, p: 1, phien_ban: 19 };
@@ -89,10 +90,7 @@ export function taoThamSoKdf(): ThamSoKdf {
 }
 
 async function master(pin: string, tham_so: ThamSoKdf): Promise<Bytes> {
-  return new Uint8Array(await argon2id({
-    password: pin, salt: tuB64(tham_so.salt), parallelism: tham_so.p, iterations: tham_so.t,
-    memorySize: tham_so.m, hashLength: 32, outputType: 'binary',
-  }));
+  return dinhArgon2({ password: pin, salt: tuB64(tham_so.salt), m: tham_so.m, t: tham_so.t, p: tham_so.p });
 }
 
 async function hkdf(ikm: Bytes, salt: Bytes, info: string, dung: 'bits' | 'aes'): Promise<ArrayBuffer | CryptoKey> {
