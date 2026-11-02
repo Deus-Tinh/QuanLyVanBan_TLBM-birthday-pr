@@ -34,7 +34,7 @@ from .serializers import (
     BatLaiQuyenKySerializer, DatPinSerializer, DoiPinSerializer, GiaiQuyetSerializer, GuiTrinhKySerializer, HuyTrinhKySerializer,
     KhoaDangKySerializer,
     KhoaQuyenKySerializer, KhoaSerializer, KySerializer, LienKetVanBanDiSerializer, MoKhoaKySerializer, QuyTrinhInputSerializer,
-    QuyTrinhSerializer, ThuHoiKhoaSerializer, TrinhKyChiTietSerializer, TrinhKySerializer, TrinhKySuaSerializer,
+    MaXacThucSerializer, QuyTrinhSerializer, ThuHoiKhoaSerializer, TrinhKyChiTietSerializer, TrinhKySerializer, TrinhKySuaSerializer,
     TrinhKyTaoSerializer, TrinhLaiSerializer,
     TinNhanInputSerializer, TinNhanSerializer, TuChoiSerializer, XacMinhSoHuuSerializer,
     XoayVongSerializer, YeuCauSuaSerializer, YeuCauSuaThreadSerializer,
@@ -43,6 +43,7 @@ from .services import bang_chung as bang_chung_service
 from .services import hanh_dong_ky as hanh_dong_service
 from .services import keys as key_service
 from .services import pin as pin_service
+from .services import pin_reset as pin_reset_service
 from .services import quyen_ky as quyen_ky_service
 from .services import process as process_service
 from .services import thong_bao as thong_bao_service
@@ -174,6 +175,24 @@ class KhoaThachThucView(SigningAPIView):
     def get(self, request, pk):
         key = get_object_or_404(_khoa_cua_toi(request), pk=pk)
         return Response({"thach_thuc": key_service.thach_thuc_so_huu(key)})
+
+
+class DatLaiPinYeuCauView(SigningAPIView):
+    """POST /dat-lai-pin/yeu-cau/: gửi mã xác thực 6 chữ số tới email của tài khoản (không cần quyền ký)."""
+
+    def post(self, request):
+        het_han = pin_reset_service.yeu_cau_ma(request.user, dia_chi_ip=_ip(request))
+        return Response({"het_han": het_han, "gian_cach_giay": int(pin_reset_service.GIAN_CACH_GUI.total_seconds())})
+
+
+class DatLaiPinXacNhanView(SigningAPIView):
+    """POST /dat-lai-pin/xac-nhan/ {ma}: mã đúng thì thu hồi khóa ký hiện tại; chủ khóa tạo khóa và PIN mới sau đó."""
+
+    def post(self, request):
+        data = MaXacThucSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        so_khoa = pin_reset_service.xac_nhan_ma(request.user, data.validated_data["ma"], dia_chi_ip=_ip(request))
+        return Response({"so_khoa_thu_hoi": so_khoa})
 
 
 class KhoaActionView(SigningAPIView):
