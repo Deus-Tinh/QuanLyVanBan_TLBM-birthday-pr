@@ -1,4 +1,14 @@
 -- =====================================================================
+-- THAY ĐỔI QUYỀN NHÓM VĂN THƯ (Nhóm 7; đánh dấu [VTQ] tại vị trí)
+-- Căn cứ: quyết định nhóm trưởng (02-03/11/2026): Văn thư chỉ xem, thêm, import văn bản đến/đi, xuất Excel văn bản đến,
+--   đổi hiệu lực qua change_hieu_luc_*; không sửa, xóa văn bản của người khác; giữ các quyền chung của CBNV.
+--   Bỏ khỏi nhóm VT 13 lượt: change_vanbanden, delete_vanbanden, send_mail_all_vanbanden, change_vanbandi,
+--   delete_vanbandi, export_vanbandi, send_mail_all_vanbandi, add_hoso, change_hoso, toggle_status_hoso,
+--   manage_documents_hoso, add_tailieu, change_tailieu.
+--   Migration authorization 0014_van_thu_permissions đặt lại nhóm VT đúng 30 quyền trên DB đã seed từ trước.
+-- Quy mô sau [VTQ] (cộng sau [XTKY]): giữ 81 quyền thao tác; 214 -> 201 lượt phân quyền; nhóm VT 43 -> 30 quyền.
+-- =====================================================================
+-- =====================================================================
 -- THAY ĐỔI QUYỀN XEM TẤT CẢ HỒ SƠ TRÌNH KÝ (Nhóm 5; đánh dấu [XTKY] tại vị trí)
 -- Căn cứ: yêu cầu nghiệp vụ: Văn thư xem toàn bộ hồ sơ trình ký như Ban Giám đốc và Quản trị hệ thống,
 --   không mở nhật ký kiểm toán (view_signing_audit).
@@ -2868,7 +2878,8 @@ WHERE
         'use_aiassistant'
     ) ON CONFLICT (group_id, permission_id) DO NOTHING;
 
--- Nhóm VT (Văn thư): Nghiệp vụ văn thư lưu trữ, văn bản đến/đi, quản lý hồ sơ, tài liệu biểu mẫu
+-- [VTQ] Nhóm VT (Văn thư): xem, thêm, import văn bản đến/đi, xuất Excel văn bản đến, đổi hiệu lực;
+--   không sửa/xóa văn bản đến/đi, không gửi mail toàn hệ thống; xem hồ sơ, tài liệu biểu mẫu; quyền chung của CBNV
 INSERT INTO
     auth_group_permissions (group_id, permission_id)
 SELECT g.id, p.id
@@ -2883,28 +2894,15 @@ WHERE
         'change_self_cbnv',
         'view_vanbanden',
         'add_vanbanden',
-        'change_vanbanden',
-        'delete_vanbanden',
         'import_vanbanden',
         'export_vanbanden',
-        'send_mail_all_vanbanden',
         'change_hieu_luc_vanbanden',
         'view_vanbandi',
         'add_vanbandi',
-        'change_vanbandi',
-        'delete_vanbandi',
         'import_vanbandi',
-        'export_vanbandi',
-        'send_mail_all_vanbandi',
         'change_hieu_luc_vanbandi',
         'view_hoso',
-        'add_hoso',
-        'change_hoso',
-        'manage_documents_hoso',
-        'toggle_status_hoso',
         'view_tailieu',
-        'add_tailieu',
-        'change_tailieu',
         'view_trinhky',
         'send_trinhky',
         'add_trinhky',
