@@ -60,6 +60,7 @@ from .selectors import (
     van_ban_xem_duoc,
     la_nguoi_xem_duoc,
     log_access,
+    co_quyen_xu_ly_het_hieu_luc,
 )
 from .serializers import (
     DocumentCreateUpdateSerializer,
@@ -131,16 +132,17 @@ def can_edit_document(user, instance):
 
     is_mat = getattr(instance, "loai", None) == "MAT" or (getattr(instance, "_meta", None) and instance._meta.model_name == "vanbanmat")
 
+    # Văn bản Đến/Đi đã hết hiệu lực (cả NOI_BO lẫn HAN_CHE): CHỈ superuser hoặc quyền manage_het_hieu_luc_*
+    # (nhóm ADMIN có sẵn) mới có quyền chỉnh sửa; người tạo, cán bộ chỉ định không có quyền thì không sửa được.
+    is_expired = getattr(instance, "hieu_luc", None) in (HieuLuc.HET_HIEU_LUC, HieuLuc.HET_VA_THAY_THE)
+    if is_expired and not is_mat:
+        return co_quyen_xu_ly_het_hieu_luc(user, instance._meta.model_name)
+
     # Văn bản Mật / Hạn chế: CHỈ Quản trị viên (Admin) hoặc Người tạo mới có quyền chỉnh sửa. Cán bộ nhận chỉ có quyền Xem (Read-Only).
     if is_mat or getattr(instance, "pham_vi", None) == PhamVi.HAN_CHE:
         is_real_admin = is_admin_user(user)
         is_creator = (getattr(instance, "nguoi_tao_id", None) == user.pk) or (getattr(instance, "nguoi_tao", None) == user)
         return bool(is_real_admin or is_creator)
-
-    # Văn bản Đến/Đi đã hết hiệu lực: CHỈ Admin mới có quyền chỉnh sửa. Cán bộ chỉ định chỉ có quyền Xem.
-    is_expired = getattr(instance, "hieu_luc", None) in (HieuLuc.HET_HIEU_LUC, HieuLuc.HET_VA_THAY_THE)
-    if is_expired:
-        return is_admin_user(user)
 
     # Văn bản Đến/Đi còn hiệu lực: Admin hoặc Cán bộ được chỉ định (người tạo) có quyền chỉnh sửa.
     if is_admin_user(user):
@@ -349,13 +351,14 @@ def can_delete_document(user, instance):
 
     is_mat = getattr(instance, "loai", None) == "MAT" or (getattr(instance, "_meta", None) and instance._meta.model_name == "vanbanmat")
 
+    # Văn bản Đến/Đi đã hết hiệu lực (cả NOI_BO lẫn HAN_CHE): CHỈ superuser hoặc quyền manage_het_hieu_luc_*
+    # (nhóm ADMIN có sẵn) mới có quyền xóa; người tạo, cán bộ chỉ định không có quyền thì không xóa được.
+    is_expired = getattr(instance, "hieu_luc", None) in (HieuLuc.HET_HIEU_LUC, HieuLuc.HET_VA_THAY_THE)
+    if is_expired and not is_mat:
+        return co_quyen_xu_ly_het_hieu_luc(user, instance._meta.model_name)
+
     # Văn bản Hạn chế (HAN_CHE) hoặc Văn bản Mật: CHỈ Quản trị viên (Admin) mới có quyền xóa. Cán bộ thường / Cán bộ chỉ định / Người tạo không được phép xóa.
     if is_mat or getattr(instance, "pham_vi", None) == PhamVi.HAN_CHE:
-        return is_admin_user(user)
-
-    # Văn bản Đến/Đi đã hết hiệu lực: CHỈ Admin mới có quyền xóa. Cán bộ chỉ định chỉ có quyền xem.
-    is_expired = getattr(instance, "hieu_luc", None) in (HieuLuc.HET_HIEU_LUC, HieuLuc.HET_VA_THAY_THE)
-    if is_expired:
         return is_admin_user(user)
 
     # Văn bản Đến/Đi còn hiệu lực: Admin hoặc Cán bộ được chỉ định (người tạo) có quyền xóa
