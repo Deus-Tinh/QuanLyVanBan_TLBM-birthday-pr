@@ -1,7 +1,7 @@
 """
-Nhóm Văn thư đúng 30 quyền (release_DDL.sql [VTQ]): DB dựng bằng migration, rbac_seed và DDL khớp nhau;
-Văn thư không sửa/xóa văn bản đến của người khác; migration 0014 gỡ quyền gán tay, chạy lại không đổi thêm,
-không đụng nhóm khác, reverse trả về seed cũ.
+Nhóm Văn thư đúng 32 quyền (release_DDL.sql [VTQ], [XHHL]): DB dựng bằng migration, rbac_seed và DDL khớp nhau;
+Văn thư không sửa/xóa văn bản đến của người khác; migration 0014 đặt lại đúng 30 quyền lúc đó, gỡ quyền gán tay,
+chạy lại không đổi thêm, không đụng nhóm khác, reverse trả về seed cũ; 0016 thêm 2 quyền xem văn bản hết hiệu lực.
 """
 import re
 from importlib import import_module
@@ -22,7 +22,8 @@ from documents.models import VanBanDen
 migration = import_module("authorization.migrations.0014_van_thu_permissions")
 DDL_PATH = Path(settings.BASE_DIR).parent / "docs" / "common" / "database" / "release_DDL.sql"
 
-EXPECTED = {
+# Danh sách 30 quyền do migration 0014 đặt lại.
+EXPECTED_0014 = {
     "view_donvi", "view_chucvu", "view_loaitailieubieumau", "view_list_cbnv", "change_self_cbnv",
     "view_vanbanden", "add_vanbanden", "import_vanbanden", "export_vanbanden", "change_hieu_luc_vanbanden",
     "view_vanbandi", "add_vanbandi", "import_vanbandi", "change_hieu_luc_vanbandi",
@@ -36,8 +37,11 @@ REMOVED = {
     "change_vanbandi", "delete_vanbandi", "export_vanbandi", "send_mail_all_vanbandi",
     "add_hoso", "change_hoso", "toggle_status_hoso", "manage_documents_hoso", "add_tailieu", "change_tailieu",
 }
+# Quyền thêm sau 0014 (migration 0016_het_hieu_luc_permissions).
+AFTER_0014 = {"view_het_hieu_luc_vanbanden", "view_het_hieu_luc_vanbandi"}
+EXPECTED = EXPECTED_0014 | AFTER_0014
 # Quyền tạo sau 0002 nên không nằm trong rbac_seed, được gán bởi migration riêng.
-LATER_MIGRATION_GRANTS = {"change_hieu_luc_vanbanden", "change_hieu_luc_vanbandi", "view_all_trinhky"}
+LATER_MIGRATION_GRANTS = {"change_hieu_luc_vanbanden", "change_hieu_luc_vanbandi", "view_all_trinhky"} | AFTER_0014
 
 
 class SchemaEditorStub:
@@ -60,9 +64,10 @@ def ddl_codenames_of(code):
 
 
 class VanThuPermissionTest(TestCase):
-    def test_database_after_migrate_has_exactly_thirty_permissions(self):
+    def test_database_after_migrate_has_exactly_thirty_two_permissions(self):
         self.assertEqual(codenames_of("VT"), EXPECTED)
-        self.assertEqual(len(EXPECTED), 30)
+        self.assertEqual(len(EXPECTED_0014), 30)
+        self.assertEqual(len(EXPECTED), 32)
 
     def test_release_ddl_seeds_the_same_list(self):
         self.assertEqual(ddl_codenames_of("VT"), EXPECTED)
@@ -74,8 +79,8 @@ class VanThuPermissionTest(TestCase):
         self.assertFalse(set(seed) & REMOVED)
 
     def test_migration_list_matches_expected(self):
-        self.assertEqual(set(migration.VAN_THU_PERMISSIONS), EXPECTED)
-        self.assertEqual(set(migration.OLD_VAN_THU_PERMISSIONS), EXPECTED | REMOVED)
+        self.assertEqual(set(migration.VAN_THU_PERMISSIONS), EXPECTED_0014)
+        self.assertEqual(set(migration.OLD_VAN_THU_PERMISSIONS), EXPECTED_0014 | REMOVED)
 
     def test_migration_removes_hand_grants_and_is_idempotent(self):
         vt = group_of("VT")
@@ -86,15 +91,15 @@ class VanThuPermissionTest(TestCase):
         migration.apply_van_thu_permissions(None, SchemaEditorStub)
         migration.apply_van_thu_permissions(None, SchemaEditorStub)
 
-        self.assertEqual(codenames_of("VT"), EXPECTED)
+        self.assertEqual(codenames_of("VT"), EXPECTED_0014)
         for code, before in others.items():
             self.assertEqual(codenames_of(code), before, code)
 
     def test_reverse_restores_previous_seed(self):
         migration.restore_old_van_thu_permissions(None, SchemaEditorStub)
-        self.assertEqual(codenames_of("VT"), EXPECTED | REMOVED)
+        self.assertEqual(codenames_of("VT"), EXPECTED_0014 | REMOVED)
         migration.apply_van_thu_permissions(None, SchemaEditorStub)
-        self.assertEqual(codenames_of("VT"), EXPECTED)
+        self.assertEqual(codenames_of("VT"), EXPECTED_0014)
 
 
 class VanThuDocumentApiTest(TestCase):
