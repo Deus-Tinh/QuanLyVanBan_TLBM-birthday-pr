@@ -1,4 +1,22 @@
 -- =====================================================================
+-- GỠ QUYỀN delegate_trinhky (Nhóm 5; đánh dấu [GDLG] tại vị trí)
+-- Căn cứ: ủy quyền ký đã bỏ ở #374, #383; quyền không còn tính năng nào sử dụng (issue #519).
+--   Bỏ quyền delegate_trinhky khỏi seed auth_permission và khỏi danh sách quyền nhóm TP và BGD;
+--   ADMIN nhận quyền qua CROSS JOIN nên giảm theo. Migration authorization 0015_remove_delegate_trinhky
+--   xóa quyền và các lượt gán trên DB đã seed từ trước.
+-- Quy mô sau [GDLG] (cộng sau [VTQ]): 81 -> 80 quyền thao tác; 201 -> 198 lượt phân quyền (TP -1, BGD -1, ADMIN -1).
+-- =====================================================================
+-- =====================================================================
+-- THAY ĐỔI QUYỀN NHÓM VĂN THƯ (Nhóm 7; đánh dấu [VTQ] tại vị trí)
+-- Căn cứ: quyết định nhóm trưởng (02-03/11/2026): Văn thư chỉ xem, thêm, import văn bản đến/đi, xuất Excel văn bản đến,
+--   đổi hiệu lực qua change_hieu_luc_*; không sửa, xóa văn bản của người khác; giữ các quyền chung của CBNV.
+--   Bỏ khỏi nhóm VT 13 lượt: change_vanbanden, delete_vanbanden, send_mail_all_vanbanden, change_vanbandi,
+--   delete_vanbandi, export_vanbandi, send_mail_all_vanbandi, add_hoso, change_hoso, toggle_status_hoso,
+--   manage_documents_hoso, add_tailieu, change_tailieu.
+--   Migration authorization 0014_van_thu_permissions đặt lại nhóm VT đúng 30 quyền trên DB đã seed từ trước.
+-- Quy mô sau [VTQ] (cộng sau [XTKY]): giữ 81 quyền thao tác; 214 -> 201 lượt phân quyền; nhóm VT 43 -> 30 quyền.
+-- =====================================================================
+-- =====================================================================
 -- THAY ĐỔI QUYỀN XEM TẤT CẢ HỒ SƠ TRÌNH KÝ (Nhóm 5; đánh dấu [XTKY] tại vị trí)
 -- Căn cứ: yêu cầu nghiệp vụ: Văn thư xem toàn bộ hồ sơ trình ký như Ban Giám đốc và Quản trị hệ thống,
 --   không mở nhật ký kiểm toán (view_signing_audit).
@@ -1451,6 +1469,35 @@ CREATE TABLE signing_pin_reset_code (
 
 CREATE INDEX idx_signing_pin_reset_user ON signing_pin_reset_code (nguoi_dung_id, created_at);
 
+-- 9.8c3. Nonce challenge chứng minh sở hữu khóa đã dùng (Nhóm 5, issue #507): mỗi challenge xác minh thành công một lần
+CREATE TABLE signing_challenge_da_dung (
+    id BIGSERIAL PRIMARY KEY,
+    nguoi_dung_id BIGINT NOT NULL REFERENCES accounts_employee (id) ON DELETE CASCADE,
+    nonce VARCHAR(64) NOT NULL,
+    het_han TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_signing_challenge_da_dung UNIQUE (nguoi_dung_id, nonce)
+);
+
+CREATE INDEX idx_signing_challenge_het_han ON signing_challenge_da_dung (het_han);
+
+-- 9.8c4. Mã xác thực MFA khi ký gửi qua email và phiên đã xác thực (Nhóm 5): lưu mã đã băm; dòng đã dùng gắn với access token
+CREATE TABLE signing_mfa_otp (
+    id BIGSERIAL PRIMARY KEY,
+    nguoi_dung_id BIGINT NOT NULL REFERENCES accounts_employee (id) ON DELETE CASCADE,
+    muc_dich VARCHAR(20) NOT NULL DEFAULT 'KY',
+    ma_bam VARCHAR(64) NOT NULL,
+    het_han TIMESTAMPTZ NOT NULL,
+    so_lan_sai INTEGER NOT NULL DEFAULT 0,
+    da_dung_luc TIMESTAMPTZ,
+    phien_jti VARCHAR(64),
+    phien_het_han TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_signing_mfa_otp_user ON signing_mfa_otp (nguoi_dung_id, muc_dich, created_at);
+CREATE INDEX idx_signing_mfa_otp_phien ON signing_mfa_otp (nguoi_dung_id, phien_jti);
+
 -- 9.8d. [v1] Khóa quyền ký của tài khoản do quản trị viên đặt (Nhóm 5, issue #449) — bảng trạng thái.
 -- Một tài khoản có tối đa một dòng đang hiệu lực (bat_lai_luc IS NULL). khoa_den NULL: khóa đến khi được bật lại.
 -- Dòng hết hạn (khoa_den đã qua) được đóng bằng dịch vụ khi khóa lại; nguoi_bat_lai_id NULL là hết hạn tự nhiên.
@@ -2283,7 +2330,7 @@ SET
     ma_nhom_quyen = EXCLUDED.ma_nhom_quyen;
 
 -- ---------------------------------------------------------------------
--- 5) Seed 81 Quyền thao tác chi tiết (auth_permission)
+-- 5) Seed 80 Quyền thao tác chi tiết (auth_permission)
 -- ---------------------------------------------------------------------
 INSERT INTO
     auth_permission (name, codename, module_ten)
@@ -2573,11 +2620,6 @@ VALUES
         'Trình ký'
     ),
     (
-        'Ủy quyền ký số',
-        'delegate_trinhky',
-        'Trình ký'
-    ),
-    (
         'Hủy yêu cầu trình ký',
         'cancel_trinhky',
         'Trình ký'
@@ -2751,7 +2793,6 @@ WHERE
         'add_trinhky',
         'sign_trinhky',
         'send_trinhky',
-        'delegate_trinhky',
         'cancel_trinhky',
         'view_signing_audit',
         'view_all_trinhky',
@@ -2791,7 +2832,6 @@ WHERE
         'add_trinhky',
         'sign_trinhky',
         'send_trinhky',
-        'delegate_trinhky',
         'cancel_trinhky',
         'manage_signing_process', -- [P7] lãnh đạo đơn vị quản lý quy trình PHONG_BAN
         'view_congviec',
@@ -2839,7 +2879,8 @@ WHERE
         'use_aiassistant'
     ) ON CONFLICT (group_id, permission_id) DO NOTHING;
 
--- Nhóm VT (Văn thư): Nghiệp vụ văn thư lưu trữ, văn bản đến/đi, quản lý hồ sơ, tài liệu biểu mẫu
+-- [VTQ] Nhóm VT (Văn thư): xem, thêm, import văn bản đến/đi, xuất Excel văn bản đến, đổi hiệu lực;
+--   không sửa/xóa văn bản đến/đi, không gửi mail toàn hệ thống; xem hồ sơ, tài liệu biểu mẫu; quyền chung của CBNV
 INSERT INTO
     auth_group_permissions (group_id, permission_id)
 SELECT g.id, p.id
@@ -2854,28 +2895,15 @@ WHERE
         'change_self_cbnv',
         'view_vanbanden',
         'add_vanbanden',
-        'change_vanbanden',
-        'delete_vanbanden',
         'import_vanbanden',
         'export_vanbanden',
-        'send_mail_all_vanbanden',
         'change_hieu_luc_vanbanden',
         'view_vanbandi',
         'add_vanbandi',
-        'change_vanbandi',
-        'delete_vanbandi',
         'import_vanbandi',
-        'export_vanbandi',
-        'send_mail_all_vanbandi',
         'change_hieu_luc_vanbandi',
         'view_hoso',
-        'add_hoso',
-        'change_hoso',
-        'manage_documents_hoso',
-        'toggle_status_hoso',
         'view_tailieu',
-        'add_tailieu',
-        'change_tailieu',
         'view_trinhky',
         'send_trinhky',
         'add_trinhky',
