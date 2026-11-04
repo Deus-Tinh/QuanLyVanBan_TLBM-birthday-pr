@@ -1,4 +1,15 @@
 -- =====================================================================
+-- THÊM QUYỀN XEM VÀ XỬ LÝ VĂN BẢN HẾT HIỆU LỰC (Nhóm 7; đánh dấu [XHHL] tại vị trí)
+-- Căn cứ: nghiệp vụ văn bản đến/đi (góp ý Nhóm 2): văn bản hết hiệu lực (cả NOI_BO lẫn HAN_CHE) chỉ tài khoản được
+--   phân quyền mới xem được; người tạo, người nhận, đơn vị nhận không có quyền thì không thấy, quyền
+--   view_vanbanden/view_vanbandi không đủ; chỉ tài khoản được phân quyền xử lý mới sửa, xóa được văn bản hết hiệu lực.
+--   Thêm 4 quyền: view_het_hieu_luc_vanbanden, view_het_hieu_luc_vanbandi (gán ADMIN qua CROSS JOIN sẵn có và VT);
+--   manage_het_hieu_luc_vanbanden, manage_het_hieu_luc_vanbandi (gán ADMIN qua CROSS JOIN sẵn có).
+--   Migration authorization 0016_het_hieu_luc_permissions bổ sung cho DB đã seed từ trước.
+-- Quy mô sau [XHHL] (cộng sau [GDLG]): 80 -> 84 quyền thao tác; thêm 6 lượt phân quyền (ADMIN 4, VT 2): 198 -> 204;
+--   nhóm VT 30 -> 32 quyền.
+-- =====================================================================
+-- =====================================================================
 -- GỠ QUYỀN delegate_trinhky (Nhóm 5; đánh dấu [GDLG] tại vị trí)
 -- Căn cứ: ủy quyền ký đã bỏ ở #374, #383; quyền không còn tính năng nào sử dụng (issue #519).
 --   Bỏ quyền delegate_trinhky khỏi seed auth_permission và khỏi danh sách quyền nhóm TP và BGD;
@@ -2495,6 +2506,17 @@ VALUES
         'change_hieu_luc_vanbanden',
         'Văn bản đến'
     ),
+    -- [XHHL]
+    (
+        'Xem văn bản đến hết hiệu lực',
+        'view_het_hieu_luc_vanbanden',
+        'Văn bản đến'
+    ),
+    (
+        'Xử lý (sửa, xóa) văn bản đến hết hiệu lực',
+        'manage_het_hieu_luc_vanbanden',
+        'Văn bản đến'
+    ),
     -- Văn bản đi (Nhóm 2)
     (
         'Xem danh sách/chi tiết văn bản đi',
@@ -2539,6 +2561,17 @@ VALUES
     (
         'Đổi hiệu lực văn bản đi',
         'change_hieu_luc_vanbandi',
+        'Văn bản đi'
+    ),
+    -- [XHHL]
+    (
+        'Xem văn bản đi hết hiệu lực',
+        'view_het_hieu_luc_vanbandi',
+        'Văn bản đi'
+    ),
+    (
+        'Xử lý (sửa, xóa) văn bản đi hết hiệu lực',
+        'manage_het_hieu_luc_vanbandi',
         'Văn bản đi'
     ),
     -- Hồ sơ lưu trữ (Nhóm 3)
@@ -2880,6 +2913,7 @@ WHERE
     ) ON CONFLICT (group_id, permission_id) DO NOTHING;
 
 -- [VTQ] Nhóm VT (Văn thư): xem, thêm, import văn bản đến/đi, xuất Excel văn bản đến, đổi hiệu lực;
+-- [XHHL] xem văn bản đến/đi hết hiệu lực;
 --   không sửa/xóa văn bản đến/đi, không gửi mail toàn hệ thống; xem hồ sơ, tài liệu biểu mẫu; quyền chung của CBNV
 INSERT INTO
     auth_group_permissions (group_id, permission_id)
@@ -2898,10 +2932,12 @@ WHERE
         'import_vanbanden',
         'export_vanbanden',
         'change_hieu_luc_vanbanden',
+        'view_het_hieu_luc_vanbanden',
         'view_vanbandi',
         'add_vanbandi',
         'import_vanbandi',
         'change_hieu_luc_vanbandi',
+        'view_het_hieu_luc_vanbandi',
         'view_hoso',
         'view_tailieu',
         'view_trinhky',
