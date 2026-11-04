@@ -8,7 +8,7 @@
   - Backend: Django REST Framework, Python 3.12, PostgreSQL 16 (Collation ICU `vi-VN`)
   - Giao thức: HTTP / Port 8088 (Môi trường mạng cục bộ và thử nghiệm)
 - **Thời điểm kiểm định**: 04/11/2026
-- **Kết quả tổng quát**: **30/30 Ca kiểm thử ĐẠT (PASS 100%)**
+- **Kết quả tổng quát**: **29/30 ca PASS; TC-06 BLOCKED** (chưa xác minh khôi phục và ký lại bằng đúng khóa cũ)
 
 ---
 
@@ -41,7 +41,7 @@ Trọng tâm kiểm thử bao gồm:
 
 ## II. Bảng Tổng hợp 30 Ca Kiểm thử (Khớp Google Sheets)
 
-> **Ghi chú**: Dữ liệu bảng dưới đây được lưu trữ sẵn sàng dưới định dạng TSV tại [danh_sach_testcase_google_sheets.tsv](file:///d:/QuanLyVanBan_TLBM/docs/qa/nhom_5/danh_sach_testcase_google_sheets.tsv).
+> **Ghi chú**: Dữ liệu bảng dưới đây được lưu trữ dưới định dạng TSV tại [danh_sach_testcase_google_sheets.tsv](danh_sach_testcase_google_sheets.tsv).
 
 | Mã TC | Phân hệ / Màn hình | Tên ca kiểm thử | Mô tả & Các bước thực hiện | Kết quả mong đợi (Expected) | Kết quả thực tế trên Staging | Người test | Mức độ ưu tiên | Trạng thái |
 |:---:|:---|:---|:---|:---|:---|:---:|:---:|:---:|
@@ -50,7 +50,7 @@ Trọng tâm kiểm thử bao gồm:
 | **TC-03** | Cấu hình khóa ký (`/approvals/khoa`) | Kiểm tra quy tắc chặn PIN yếu, chuỗi tuần tự và ngày sinh | 1. Thử nhập PIN < 6 số.<br>2. Nhập PIN trùng lặp '111111'.<br>3. Nhập chuỗi liên tiếp '123456', '654321'.<br>4. Nhập ngày tháng phổ biến. | Nút 'Tạo khóa ký' bị vô hiệu hóa, hiển thị thông báo lỗi đa ngữ (vi/en) chi tiết lý do không đạt yêu cầu bảo mật. | Chặn chính xác toàn bộ chuỗi PIN không an toàn, thông báo lỗi song ngữ chuẩn xác. | Nhóm 5 | High | **PASS** |
 | **TC-04** | Cấu hình khóa ký (`/approvals/khoa`) | Khởi tạo cặp khóa ký Ed25519 hợp lệ và lưu trữ bảo mật cục bộ | 1. Nhập PIN 6 số an toàn và xác nhận lại PIN.<br>2. Bấm 'Tạo khóa ký cho thiết bị này'. | Sinh cặp khóa Ed25519 PKCS#8 DER, bọc private key bằng AES-256-GCM lưu trữ IndexedDB, gửi public key đăng ký thiết bị lên backend. | Khóa ký được tạo thành công, mã định danh thiết bị hiển thị, trạng thái Đang sử dụng. | Nhóm 5 | Critical | **PASS** |
 | **TC-05** | Cấu hình khóa ký (`/approvals/khoa`) | Đổi mã PIN bảo vệ khóa ký khi nhớ PIN cũ | 1. Bấm 'Đổi PIN'.<br>2. Nhập PIN hiện tại.<br>3. Nhập PIN mới 6 số hợp lệ và xác nhận.<br>4. Bấm 'Lưu PIN mới'. | Giải mã private key bằng PIN cũ và bọc lại bằng PIN mới trong IndexedDB; backend cập nhật khóa dẫn xuất server. | Đổi PIN thành công, thông báo xanh hiển thị, khóa ký tiếp tục hoạt động với PIN mới. | Nhóm 5 | High | **PASS** |
-| **TC-06** | Cấu hình khóa ký (`/approvals/khoa`) | Khôi phục quyền ký khi người dùng quên mã PIN | 1. Bấm liên kết 'Quên PIN?'.<br>2. Nhập mã OTP nhận được qua email cơ quan.<br>3. Thiết lập PIN mới. | Hệ thống xác thực mã OTP hợp lệ và cho phép thiết lập lại PIN cho cặp khóa mới. | Quy trình gửi OTP và khôi phục hoạt động chính xác theo quy chuẩn an toàn. | Nhóm 5 | High | **PASS** |
+| **TC-06** | Cấu hình khóa ký (`/approvals/khoa`) | Khôi phục đúng khóa ký khi người dùng quên mã PIN | 1. Ghi nhận public key/fingerprint đang hoạt động.<br>2. Bấm 'Quên PIN?', nhận mã qua email và đặt PIN mới.<br>3. Ký một tài liệu bằng PIN mới.<br>4. Xác minh chữ ký bằng public key đã ghi nhận ở bước 1. | Khôi phục thành công phải giữ nguyên public key/fingerprint; chữ ký sau khôi phục phải xác minh được bằng khóa cũ. | Chưa xác minh trên staging. Finding source trong issue #553 cho thấy PIN có thể được cập nhật dù private key không giải mã được; cần xử lý và chạy lại ca này. | Nhóm 5 | High | **BLOCKED** |
 | **TC-07** | Cấu hình khóa ký (`/approvals/khoa`) | Xuất tệp khóa ký đã mã hóa để lưu trữ ngoại vi | 1. Bấm nút 'Xuất tệp khóa (.tlbmkey)'.<br>2. Nhập mã PIN xác nhận quyền sở hữu. | Trình duyệt tải về tệp có đuôi `.tlbmkey` chứa chuỗi JSON khóa đã được mã hóa bảo mật. | Tải tệp `.tlbmkey` thành công, cấu trúc tệp chuẩn định dạng bảo mật TLBM. | Nhóm 5 | Medium | **PASS** |
 | **TC-08** | Cấu hình khóa ký (`/approvals/khoa`) | Khôi phục khóa ký trên trình duyệt khác từ tệp sao lưu | 1. Chọn tệp `.tlbmkey` đã sao lưu.<br>2. Nhập mã PIN tương ứng của khóa.<br>3. Bấm 'Nhập khóa'. | Tệp khóa được xác thực tính toàn vẹn, nạp vào IndexedDB và đồng bộ trạng thái với backend. | Khóa được nhập thành công, thiết bị mới sẵn sàng thực hiện ký số ngay lập tức. | Nhóm 5 | High | **PASS** |
 | **TC-09** | Cấu hình khóa ký (`/approvals/khoa`) | Thu hồi khóa ký khi nghi ngờ lộ lọt thiết bị | 1. Di chuyển xuống khối 'Thu hồi khóa ký'.<br>2. Nhập lý do thu hồi bắt buộc.<br>3. Bấm 'Thu hồi khóa'. | Backend đánh dấu khóa chuyển trạng thái REVOKED, IndexedDB xóa private key, ghi nhật ký kiểm toán. | Khóa ký bị thu hồi ngay lập tức, không thể dùng để ký tài liệu mới, nhật ký ghi nhận đầy đủ lý do. | Nhóm 5 | High | **PASS** |
@@ -84,7 +84,7 @@ Trọng tâm kiểm thử bao gồm:
 - **Tình trạng trước khi fix**:
   - Khi truy cập trang `/approvals/khoa` qua địa chỉ HTTP Staging (`http://staging-quanlyvanban.bhbl.vn:8088/`), trình duyệt đặt `window.isSecureContext = false` và vô hiệu hóa `window.crypto.subtle`.
   - Màn hình xuất hiện banner cảnh báo màu đỏ: *"Trình duyệt này chưa hỗ trợ tạo khóa ký. Hãy cập nhật trình duyệt lên phiên bản mới."* và chặn toàn bộ người dùng tạo khóa hay ký tài liệu.
-  - *Bằng chứng trước khi fix*: [evidence_01_webcrypto_before_fix.png](file:///d:/QuanLyVanBan_TLBM/docs/qa/nhom_5/evidence_01_webcrypto_before_fix.png)
+  - *Bằng chứng trước khi fix*: [evidence_01_webcrypto_before_fix.png](evidence_01_webcrypto_before_fix.png)
 - **Giải pháp xử lý kỹ thuật**:
   - Tích hợp bộ thư viện pure-JS chuẩn (@noble/curves, @noble/ciphers, @noble/hashes) làm fallback mật mã tự động khi WebCrypto không khả dụng.
   - Sinh khóa Ed25519 PKCS#8 DER (48 byte), dẫn xuất HKDF-SHA256 và bản bọc AES-256-GCM lưu trữ IndexedDB, hoàn toàn tương thích với backend Python `cryptography`.
@@ -114,7 +114,7 @@ Trọng tâm kiểm thử bao gồm:
 ### 4. Phân tách phân vùng thông báo ảnh chữ ký & Dual Fallback (Issue #545 / PR #546)
 - **Tình trạng trước khi fix**:
   - Khi tải ảnh chữ ký cá nhân bị lỗi, banner thông báo lỗi bị hiển thị tràn sang thẻ "Cấu hình khóa ký" bên trái (do dùng chung state `thongBao`), gây xáo trộn giao diện và hiểu lầm về trạng thái khóa ký.
-  - *Bằng chứng trước khi fix*: [evidence_02_signature_notification_before_fix.jpg](file:///d:/QuanLyVanBan_TLBM/docs/qa/nhom_5/evidence_02_signature_notification_before_fix.jpg)
+  - *Bằng chứng trước khi fix*: [evidence_02_signature_notification_before_fix.jpg](evidence_02_signature_notification_before_fix.jpg)
 - **Giải pháp xử lý kỹ thuật**:
   - Tách riêng state `thongBaoChuKy` trong `frontend/src/pages/signing/KhoaPage.tsx` đặt độc lập bên trong thẻ "Ảnh chữ ký cá nhân" bên phải.
   - Tự động fallback sang gọi Base64 dataUrl khi upload Blob nhị phân gặp sự cố kết nối.
@@ -139,7 +139,7 @@ Trọng tâm kiểm thử bao gồm:
 
 ## V. Hướng dẫn Nhập Dữ liệu vào Google Sheets
 
-1. Mở file dữ liệu dạng bảng TSV: [danh_sach_testcase_google_sheets.tsv](file:///d:/QuanLyVanBan_TLBM/docs/qa/nhom_5/danh_sach_testcase_google_sheets.tsv).
+1. Mở file dữ liệu dạng bảng TSV: [danh_sach_testcase_google_sheets.tsv](danh_sach_testcase_google_sheets.tsv).
 2. Nhấn `Ctrl + A` để chọn toàn bộ nội dung, sau đó nhấn `Ctrl + C` để sao chép.
 3. Mở trang Google Sheet của dự án (Tab: **QA Testcase Nhóm 5**).
 4. Đặt con trỏ chuột tại ô **A2** (hoặc ô đầu dòng dữ liệu) và nhấn `Ctrl + V`.
@@ -150,6 +150,6 @@ Trọng tâm kiểm thử bao gồm:
 
 ## VI. Kết luận & Đánh giá Nghiệm thu
 
-1. **Chất lượng phân hệ**: 30/30 Ca kiểm thử đạt kết quả **PASS (100%)**, không còn bất kỳ lỗi nào tồn đọng.
+1. **Kết quả kiểm thử**: 29/30 ca **PASS**; TC-06 **BLOCKED** do chưa xác minh khôi phục cùng khóa và ký lại thành công.
 2. **Bảo mật & Độ tin cậy**: Cơ chế tạo khóa Ed25519, mã hóa bản bọc AES-256-GCM trong IndexedDB và fallback pure-JS đáp ứng đầy đủ tiêu chuẩn mật mã trên mọi môi trường mạng.
-3. **Mức độ sẵn sàng**: Phân hệ Trình ký & Ký số điện tử (Nhóm 5) trên môi trường Staging chính thức `http://staging-quanlyvanban.bhbl.vn:8088/login` đã hoàn tất toàn bộ yêu cầu kỹ thuật và nghiệp vụ, sẵn sàng bàn giao nghiệm thu đưa vào vận hành thực tế (**Production-Ready**).
+3. **Mức độ sẵn sàng**: Chưa kết luận **Production-Ready** cho đến khi TC-06 được xử lý theo issue #553 và xác minh trên staging bằng chữ ký dùng đúng khóa cũ.

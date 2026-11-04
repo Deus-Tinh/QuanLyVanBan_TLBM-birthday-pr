@@ -7,7 +7,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
 from docx.oxml import parse_xml, OxmlElement
 from docx.oxml.ns import nsdecls, qn
 
-ROOT_DIR = r"d:\QuanLyVanBan_TLBM"
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR = os.path.join(ROOT_DIR, "docs", "qa", "nhom_5")
 DESKTOP_PATH = os.path.expanduser(r"~\Desktop")
 OUTPUT_NAME = "Bao_Cao_Kiem_Thu_QA_Nhom_5.docx"
@@ -54,7 +54,7 @@ def create_report():
         "Hệ thống Quản lý Văn bản & Tài liệu Điều hành Tác nghiệp TLBM\n"
         "Môi trường kiểm thử: http://staging-quanlyvanban.bhbl.vn:8088/login\n"
         "Đơn vị thực hiện: Nhóm 5 (QA/QC & Core Dev)  |  Ngày kiểm thử: 04/11/2026\n"
-        "Trạng thái tổng thể: 30/30 Ca kiểm thử ĐẠT (PASS 100%) - Sẵn sàng nghiệm thu"
+        "Trạng thái tổng thể: 29 PASS, 1 BLOCKED - Chưa đủ cơ sở nghiệm thu"
     )
     r_meta.font.name = "Arial"
     r_meta.font.size = Pt(9.5)
@@ -89,7 +89,7 @@ def create_report():
     
     # SECTION II: BẢNG 30 TEST CASES
     h2 = doc.add_paragraph()
-    r_h2 = h2.add_run("II. BẢNG TỔNG HỢP KẾT QUẢ KIỂM THỬ (30 TEST CASES - 100% PASS)")
+    r_h2 = h2.add_run("II. BẢNG TỔNG HỢP KẾT QUẢ KIỂM THỬ (30 TEST CASES - 29 PASS, 1 BLOCKED)")
     r_h2.font.name = "Arial"
     r_h2.font.size = Pt(12)
     r_h2.font.bold = True
@@ -106,14 +106,9 @@ def create_report():
                 if len(row) >= 10:
                     test_cases.append((row[1], row[2], row[3], row[6], row[9]))
     
-    # Fallback if tsv empty
     if not test_cases:
-        test_cases = [
-            ("TC-01", "Đăng nhập", "Đăng nhập và chuyển hướng vào module Trình ký", "Chuyển hướng vào /approvals với đầy đủ quyền hạn", "PASS"),
-            ("TC-02", "Cấu hình khóa ký", "Tải trang Cấu hình khóa ký trên HTTP Staging (Pure-JS Fallback)", "Form Cấu hình khóa ký hiển thị đầy đủ, sẵn sàng nhập PIN", "PASS"),
-            ("TC-03", "Cấu hình khóa ký", "Xác thực quy tắc chặn PIN yếu, chuỗi tuần tự và ngày sinh", "Chặn chính xác toàn bộ chuỗi PIN không an toàn", "PASS"),
-        ]
-        
+        raise RuntimeError(f"No test cases found in QA source file: {tsv_path}")
+
     table = doc.add_table(rows=1, cols=5)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.autofit = False
@@ -282,9 +277,9 @@ def create_report():
     
     p_concl = doc.add_paragraph()
     r_concl = p_concl.add_run(
-        "1. Tỷ lệ hoàn thành: 30/30 Ca kiểm thử ĐẠT (PASS 100%), không còn lỗi tồn đọng.\n"
+        "1. Kết quả kiểm thử: 29/30 ca PASS; TC-06 BLOCKED vì chưa xác minh khôi phục cùng khóa và ký lại thành công.\n"
         "2. Đánh giá bảo mật: Mật mã học Ed25519, bọc khóa AES-GCM và cơ chế fallback pure-JS đạt tiêu chuẩn an toàn thông tin cơ quan nhà nước.\n"
-        "3. Đánh giá tính sẵn sàng: Phân hệ Trình ký & Ký số điện tử (Nhóm 5) trên môi trường Staging chính thức http://staging-quanlyvanban.bhbl.vn:8088/login đã hoàn tất mọi tiêu chí kỹ thuật, vận hành ổn định và sẵn sàng đưa vào vận hành thực tế (Production-Ready)."
+        "3. Đánh giá tính sẵn sàng: Chưa kết luận Production-Ready cho đến khi TC-06 được xử lý theo issue #553 và xác minh trên staging bằng chữ ký dùng đúng khóa cũ."
     )
     r_concl.font.name = "Arial"
     r_concl.font.size = Pt(9.5)
