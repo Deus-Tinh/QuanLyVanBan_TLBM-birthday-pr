@@ -300,13 +300,24 @@ export default function ModernDashboardView({
   }, [resources, searchTerm]);
 
   const filteredSigning = useMemo(() => {
-    if (!searchTerm.trim()) return signingRequests;
-    const term = searchTerm.toLowerCase();
-    return signingRequests.filter((s) => {
-      const code = (s.ma_trinh_ky || s.code || '').toLowerCase();
-      const title = (s.tieu_de || s.title || '').toLowerCase();
-      const submitter = (s.nguoi_trinh || s.submitter || '').toLowerCase();
-      return code.includes(term) || title.includes(term) || submitter.includes(term);
+    let list = signingRequests;
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      list = signingRequests.filter((s) => {
+        const code = (s.ma_trinh_ky || s.code || '').toLowerCase();
+        const title = (s.tieu_de || s.title || '').toLowerCase();
+        const submitter = (s.nguoi_trinh || s.submitter || '').toLowerCase();
+        return code.includes(term) || title.includes(term) || submitter.includes(term);
+      });
+    }
+    // Sắp xếp ưu tiên: Phiếu "Ký ngay" (can_toi_ky === true) ĐƯA LÊN ĐẦU DANH SÁCH
+    return [...list].sort((a, b) => {
+      const aCanSign = a.can_toi_ky ? 1 : 0;
+      const bCanSign = b.can_toi_ky ? 1 : 0;
+      if (bCanSign !== aCanSign) {
+        return bCanSign - aCanSign;
+      }
+      return 0;
     });
   }, [signingRequests, searchTerm]);
 
@@ -933,7 +944,15 @@ export default function ModernDashboardView({
                       ? 'YEU_CAU_SUA'
                       : rawStatus;
 
+                    const canSign = !!row.can_toi_ky;
+
                     const getSigningStatusInfo = (st: string) => {
+                      if (canSign) {
+                        return {
+                          variant: 'primary' as const,
+                          label: t('dashboardDetails.signingStatuses.KY_NGAY') || 'Ký ngay',
+                        };
+                      }
                       switch (st) {
                         case 'CHO_KY':
                         case 'pending':
@@ -991,9 +1010,8 @@ export default function ModernDashboardView({
                     };
 
                     const statusInfo = getSigningStatusInfo(displayStatus);
-                    const statusVariant = row.variant || statusInfo.variant;
+                    const statusVariant = canSign ? 'primary' : (row.variant || statusInfo.variant);
                     const statusLabel = statusInfo.label || row.nhan_trang_thai || row.trang_thai_display || row.statusLabel || rawStatus;
-                    const canSign = !!row.can_toi_ky;
 
                     return (
                       <tr
