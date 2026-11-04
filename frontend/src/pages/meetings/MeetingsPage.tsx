@@ -461,20 +461,6 @@ export const MeetingsPage: React.FC = () => {
       {/* Tabs Navigation */}
       <div className="flex items-center gap-2 border-b border-border-subtle pb-px">
         <button
-          onClick={() => setActiveTab('schedule')}
-          className={`flex items-center gap-2.5 px-5 py-3 font-bold text-sm rounded-t-xl transition-all border-b-2 ${activeTab === 'schedule'
-              ? 'text-primary border-primary bg-primary-subtle'
-              : 'text-secondary border-transparent hover:text-main hover:bg-surface-hover'
-            }`}
-        >
-          <i className="fa-regular fa-calendar-days text-base" />
-          <span>{t('meetings.tabSchedule')}</span>
-          <span className="px-2 py-0.5 rounded-full text-xs bg-primary-subtle text-primary font-semibold">
-            {activeInDay}
-          </span>
-        </button>
-
-        <button
           onClick={() => setActiveTab('rooms')}
           className={`flex items-center gap-2.5 px-5 py-3 font-bold text-sm rounded-t-xl transition-all border-b-2 ${activeTab === 'rooms'
               ? 'text-primary border-primary bg-primary-subtle'
@@ -485,6 +471,20 @@ export const MeetingsPage: React.FC = () => {
           <span>{t('meetings.tabRooms')}</span>
           <span className="px-2 py-0.5 rounded-full text-xs bg-surface-elevated text-secondary font-semibold">
             {rooms.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('schedule')}
+          className={`flex items-center gap-2.5 px-5 py-3 font-bold text-sm rounded-t-xl transition-all border-b-2 ${activeTab === 'schedule'
+              ? 'text-primary border-primary bg-primary-subtle'
+              : 'text-secondary border-transparent hover:text-main hover:bg-surface-hover'
+            }`}
+        >
+          <i className="fa-regular fa-calendar-days text-base" />
+          <span>{t('meetings.tabSchedule')}</span>
+          <span className="px-2 py-0.5 rounded-full text-xs bg-primary-subtle text-primary font-semibold">
+            {activeInDay}
           </span>
         </button>
       </div>
