@@ -3,7 +3,7 @@ Selector chỉ đọc của phân hệ Trình ký cho module khác (Dashboard Nh
 bảng `signing_*` trực tiếp (AGENTS.md mục 6).
 """
 
-from django.db.models import Case, IntegerField, OuterRef, Q, Subquery, Value, When
+from django.db.models import OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -42,14 +42,7 @@ def tong_quan_dashboard(nguoi, gioi_han=GIOI_HAN_GAN_DAY):
     ho_so = list(SigningRequest.objects.filter(pk__in=ho_so_lien_quan(nguoi).values("pk"))
                  .annotate(trang_thai_luot=Subquery(luot_cuoi))
                  .annotate(ngay_trinh=Coalesce("ngay_gui", "created_at")).select_related("create_by")
-                 .annotate(
-                     uu_tien_cho_ky=Case(
-                         When(pk__in=cho_toi, then=Value(0)),
-                         default=Value(1),
-                         output_field=IntegerField(),
-                     )
-                 )
-                 .order_by("uu_tien_cho_ky", "-ngay_trinh", "-pk")[:gioi_han])
+                 .order_by("-ngay_trinh", "-pk")[:gioi_han])
     mo_ta = mo_ta_nhieu_ho_so(ho_so)
     gan_day = []
     for h in ho_so:
