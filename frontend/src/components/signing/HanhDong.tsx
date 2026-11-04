@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@components/common';
-import { signingApi } from '@lib/signing/api';
+import { docLoi, signingApi } from '@lib/signing/api';
 import { GIOI_HAN, LOP_O_NHAP, moTaVanBan } from '@lib/signing/dinhDang';
 import { coQuyen, useKhoaChongTrung, useToi } from '@lib/signing/hooks';
 import { useSigningT } from '@lib/signing/i18n';
@@ -15,6 +15,8 @@ import type { BanBocKhoa } from '@lib/signing/khoaKy';
 import { khoaHoatDong, kyBangPin } from '@lib/signing/luongKhoa';
 import type { HoSoChiTiet, LuotTrinh } from '@lib/signing/types';
 import { HopThoai, OChonFileKhoa, ThongBao, TruongNhap } from './ChungUI';
+import DatLaiPinDialog from './DatLaiPinDialog';
+import MfaKyBuoc from './MfaKyBuoc';
 
 const URL_ANH_CHU_KY = '/api/signing/anh-chu-ky-ca-nhan/tep/';
 
@@ -61,13 +63,14 @@ function NutXacNhan({
 
 export default function HanhDong({ hoSo, luot, maBamTepDangXem, onXong }: Props) {
   const { t, loi } = useSigningT();
-  const { toi } = useToi();
+  const { toi, taiLaiToi } = useToi();
   const navigate = useNavigate();
   const khoa = useKhoaChongTrung();
   const [mo, setMo] = useState<LoaiHopThoai>(null);
   const [o1, setO1] = useState('');
   const [o2, setO2] = useState('');
   const [pin, setPin] = useState('');
+  const [moDatLaiPin, setMoDatLaiPin] = useState(false);
   const [dangLam, setDangLam] = useState(false);
   const [thongBao, setThongBao] = useState('');
   const [fileKhoa, setFileKhoa] = useState<BanBocKhoa | null>(null);
@@ -86,7 +89,9 @@ export default function HanhDong({ hoSo, luot, maBamTepDangXem, onXong }: Props)
   const thieuAnh = !anhChuKy;
   const thieuKhoa = !dangKiem && !loiKiem && !ketQuaKiem.coKhoa;
   const hienThieu = !dangKiem && !loiKiem && (thieuAnh || thieuKhoa);
-  const khoaNhap = dangKiem || Boolean(loiKiem) || thieuAnh || thieuKhoa;
+  // MFA qua email (#510): máy chủ bật cờ và access token hiện tại chưa xác thực thì phải nhập mã trước khi ký.
+  const canMfa = Boolean(toi?.mfa_ky?.bat && !toi.mfa_ky.da_xac_thuc);
+  const khoaNhap = dangKiem || Boolean(loiKiem) || thieuAnh || thieuKhoa || canMfa;
 
   useEffect(() => {
     if (mo !== 'ky' || !toi) return undefined;
@@ -183,6 +188,8 @@ export default function HanhDong({ hoSo, luot, maBamTepDangXem, onXong }: Props)
       return kq;
     } catch (err) {
       setThongBao(loi(err));
+      // Token đã đổi (làm mới/đăng nhập lại) nên phiên mất xác thực: tải lại trạng thái để hiện bước nhập mã
+      if (docLoi(err).code === 'mfa_chua_xac_thuc') taiLaiToi();
       return null;
     } finally {
       setDangLam(false);
@@ -204,8 +211,8 @@ export default function HanhDong({ hoSo, luot, maBamTepDangXem, onXong }: Props)
       throw new Error('chua_co_khoa_ky');
     }
 
-    // 3. Kiểm tra mã PIN 8 chữ số
-    if (!pin || pin.length !== 8) {
+    // 3. Kiểm tra mã PIN: 6 chữ số theo chính sách hiện hành, 8 chữ số với PIN đặt trước đây
+    if (!/^\d{6,8}$/.test(pin)) {
       throw new Error('pin_khong_hop_le');
     }
 
@@ -353,6 +360,7 @@ export default function HanhDong({ hoSo, luot, maBamTepDangXem, onXong }: Props)
 
           <div className={coFileTrenManHinh ? "space-y-4 opacity-30 transition-opacity pointer-events-none" : "space-y-4 transition-opacity"}>
             {!maBamKhop && <ThongBao>{t('loi.ma_bam_khong_khop')}</ThongBao>}
+            {canMfa && !dangKiem && !loiKiem && !hienThieu && <MfaKyBuoc onXacThuc={taiLaiToi} />}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-start">
             <TruongNhap nhan={t('hanhDong.fileKhoa')} batBuoc>
@@ -378,7 +386,7 @@ export default function HanhDong({ hoSo, luot, maBamTepDangXem, onXong }: Props)
                 autoComplete="off"
                 maxLength={8}
                 disabled={khoaNhap}
-                placeholder="••••••••"
+                placeholder="••••••"
                 value={pin}
                 onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
                 onKeyDown={(e) => {
@@ -389,6 +397,19 @@ export default function HanhDong({ hoSo, luot, maBamTepDangXem, onXong }: Props)
                 }}
               />
             </TruongNhap>
+          </div>
+          <div className="text-right">
+            <button
+              type="button"
+              className="text-xs font-semibold text-primary hover:underline"
+              disabled={dangLam}
+              onClick={() => {
+                dong();
+                setMoDatLaiPin(true);
+              }}
+            >
+              {t('khoa.quenPin')}
+            </button>
           </div>
           {fileKhoa && <ThongBao loai="thong_tin">{t('hanhDong.daChonFile')}</ThongBao>}
 
@@ -543,6 +564,14 @@ export default function HanhDong({ hoSo, luot, maBamTepDangXem, onXong }: Props)
         <p className="text-sm text-main">{t('hanhDong.xacNhanTrinhLai')}</p>
         {thongBao && <ThongBao>{thongBao}</ThongBao>}
       </HopThoai>
+      <DatLaiPinDialog
+        mo={moDatLaiPin}
+        onDong={() => setMoDatLaiPin(false)}
+        onXong={() => {
+          setMoDatLaiPin(false);
+          navigate('/approvals/khoa');
+        }}
+      />
     </div>
   );
 }
