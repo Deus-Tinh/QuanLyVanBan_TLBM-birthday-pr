@@ -1,1 +1,1 @@
-0022_ma_dat_lai_pin
+0026_bind_pin_reset_to_key
