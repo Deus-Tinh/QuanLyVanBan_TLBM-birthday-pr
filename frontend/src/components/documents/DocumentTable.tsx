@@ -184,8 +184,9 @@ export const DocumentTable: React.FC<DocumentTableProps> = ({
 
   // Helper tính quyền sửa và xóa trên từng văn bản
   const getDocPermissions = useCallback((doc: DocumentItem) => {
-    const isExpired = doc.hieu_luc === 'HET_HIEU_LUC';
-    const isDocConfidential = isConfidential || doc.pham_vi === 'HAN_CHE' || doc.loai === 'MAT' || loai === 'MAT';
+    const isExpired = doc.hieu_luc === 'HET_HIEU_LUC' || doc.hieu_luc === 'HET_VA_THAY_THE';
+    const isMat = isConfidential || doc.loai === 'MAT' || loai === 'MAT';
+    const isDocConfidential = isMat || doc.pham_vi === 'HAN_CHE';
     const isAdmin =
       currentSession?.role === 'admin' ||
       currentSession?.username === 'admin';
@@ -214,7 +215,8 @@ export const DocumentTable: React.FC<DocumentTableProps> = ({
     let userCanEdit = doc.can_edit !== undefined ? doc.can_edit : defaultCanEdit;
     let userCanDelete = doc.can_delete !== undefined ? doc.can_delete : defaultCanDelete;
 
-    if (isDocConfidential && !isAdmin) {
+    // Văn bản đến/đi hết hiệu lực (cả HAN_CHE): sửa, xóa theo quyền manage_het_hieu_luc_* do backend trả về.
+    if (isDocConfidential && !isAdmin && !(isExpired && !isMat)) {
       userCanEdit = false;
       userCanDelete = false;
     }
