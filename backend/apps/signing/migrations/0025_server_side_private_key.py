@@ -22,7 +22,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(retire_old_keys_and_clear_unlocks),
+        # Retired browser-key material is deliberately not restored on downgrade; restore a backup instead.
+        migrations.RunPython(retire_old_keys_and_clear_unlocks, migrations.RunPython.noop),
         migrations.RemoveField(
             model_name="signingkeyunlock",
             name="manh_bi_mat_ma_hoa",

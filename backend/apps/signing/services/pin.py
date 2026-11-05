@@ -159,9 +159,11 @@ def _dau_ngay_ke_tiep(bay_gio):
 
 
 def _khoa_ky_va_pin(key, nguoi_thuc_hien):
-    key = SigningKey.objects.select_for_update().get(pk=key.pk)
+    # PIN attempts serialize on the unlock row. Locking signing_key here can deadlock
+    # with the signing transaction, which locks the request first then inserts a signature.
+    key = SigningKey.objects.get(pk=key.pk)
     _chu_so_huu(key, nguoi_thuc_hien)
-    unlock = SigningKeyUnlock.objects.select_for_update().filter(khoa=key).first()
+    unlock = SigningKeyUnlock.objects.select_for_update().filter(khoa_id=key.pk).first()
     if unlock is None:
         raise ConflictError(code="pin_chua_dat", detail="Khóa ký chưa được đặt PIN.")
     return key, unlock
@@ -194,6 +196,12 @@ def _xac_minh(key, nguoi_thuc_hien, pin, trang_thai_cho_phep, khi_dung, dia_chi_
         verifier = bam_pin(pin, tham_so, pepper)
         if hmac.compare_digest(verifier, unlock.ma_bam_xac_minh_pin or ""):
             private_key = _giai_ma_khoa(key, unlock, tham_so, pepper)
+            if private_key is None:
+                raise SigningError(
+                    code="khoa_bi_mat_khong_doc_duoc",
+                    detail="Không thể mở khóa ký hiện tại. Hãy liên hệ quản trị hệ thống.",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
             if unlock.so_lan_sai:
                 unlock.so_lan_sai = 0
                 unlock.save(update_fields=["so_lan_sai", "updated_at"])
